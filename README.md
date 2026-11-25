@@ -42,7 +42,7 @@ So:                        truck tare = weigh-in − empty container tare
 
 Truck leaves with full:    predicted weigh-out = truck tare
                                                + full container tare
-                                               + bales × avg kg/bale
+                                               + bales × avg tonnes per bale
 ```
 
 If you enter a truck rego the app remembers that truck's tare. When the same truck comes back, choosing its rego gives a prediction before it reaches the bridge.
