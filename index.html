@@ -523,7 +523,7 @@ function openBook(n){
       <p class="muted">The booking clears when the truck swap is done.</p>`,
       `<button class="danger" onclick="cancelBook(${n})" style="margin-right:auto">Remove booking</button>
        <button onclick="copyText(SHEET)">Copy all</button>
-       <button onclick="window.open(LINFOX_URL,'_blank','noopener')">Open Linfox portal</button>
+       <button onclick="openLinfox()">Open Linfox portal</button>
        <button class="primary" onclick="closeDlg()">Close</button>`);
   }
   openDlg('Book a pickup', `${head}
@@ -536,10 +536,10 @@ let SHEET = '';
 /* "No": open the portal and show the booking sheet to copy from */
 function bookNow(n){
   const b = bay(n), m = mat(b.material), no = nextOrderNo(m);
-  window.open(LINFOX_URL, '_blank', 'noopener');
+  openLinfox();
   if (no) copyText(no, true);
   openDlg('Book with Linfox', `
-    <p class="muted" style="margin-top:0">The Linfox portal has opened in a new tab. Copy each field across${no ? ' (the connote number is already copied)' : ''}.</p>
+    <p class="muted" style="margin-top:0">The Linfox portal has opened in its own window on the right. Drag ContainerTracks to the left half to copy fields across. Copy each field across${no ? ' (the connote number is already copied)' : ''}.</p>
     <div class="row">
       <div style="flex:1"><label>Connote / order number</label><input id="bk-no" value="${esc(no)}" placeholder="enter order number" oninput="bkRefresh(${n})" style="font:700 18px ui-monospace,Consolas,monospace"></div>
       <div><label>Bales</label><input id="bk-bales" type="number" min="0" value="${b.bales}" oninput="bkRefresh(${n})" style="width:90px;font-size:18px;font-weight:700"></div>
@@ -550,7 +550,7 @@ function bookNow(n){
     <p>After you've submitted the booking in the portal, click <b>Mark as booked</b>.</p>`,
     `<button onclick="closeDlg()" style="margin-right:auto">Cancel</button>
      <button onclick="copyText(sheetText(bay(${n}), bkNo(), bkBales(bay(${n}))))">Copy all</button>
-     <button onclick="window.open(LINFOX_URL,'_blank','noopener')">Open portal again</button>
+     <button onclick="openLinfox()">Open portal again</button>
      <button class="primary" onclick="markBooked(${n})">Mark as booked</button>`);
 }
 /* "Yes": just record it, with the order number if they have it */
@@ -573,6 +573,15 @@ function markBooked(n){
 function cancelBook(n){
   if (!confirm('Remove this booking? (The order number sequence is not wound back.)')) return;
   bay(n).booking = null; save(); closeDlg(); render();
+}
+/* Linfox in its own window on the right half of the screen (re-used if already open),
+   so ContainerTracks can sit on the left for copying fields across. */
+function openLinfox(){
+  const sw = screen.availWidth, sh = screen.availHeight, w = Math.round(sw / 2);
+  const left = (screen.availLeft || 0) + sw - w, top = screen.availTop || 0;
+  const win = window.open(LINFOX_URL, 'linfox-portal', `popup=yes,width=${w},height=${sh},left=${left},top=${top},resizable=yes,scrollbars=yes`);
+  if (!win) { toast('Pop-up blocked — allow pop-ups for this site, then press Open portal again'); window.open(LINFOX_URL, '_blank'); return; }
+  try { win.focus(); } catch(e) {}
 }
 function copyBtn(btn){
   copyText(btn.dataset.v, true);
