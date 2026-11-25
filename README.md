@@ -31,11 +31,13 @@ The bay card shows bales / target, a progress bar and how many bales are left to
 ## Day sheet: how many bales fit
 
 ```
-Can carry  = max gross for the truck setup − truck tare
-Max bales  = can carry ÷ average bale weight for the commodity   (capped by the setup's max bales, if set)
+Can carry        = max gross for the truck setup − truck tare − safety buffer (0.5 t by default)
+Suggested bales  = can carry ÷ bale weight                       (capped by the setup's max bales, if set)
 ```
 
-Example: 9 axle B-double, tare 20.5 t → can carry 62.5 − 20.5 = 42.0 t → **93 bales** of OCC at 0.450 t, or 84 of MXP at 0.500 t.
+The bale weight comes from previous **weighed pickups** of that commodity on the day sheet. With none yet, it uses loads weighed out of containers, then the Materials average. If the same truck (rego) has picked up before, the row also shows what it took last time.
+
+Example: 9 axle B-double, tare 20.5 t → 62.5 − 20.5 − 0.5 = 41.5 t. Previous OCC pickups averaged 0.462 t per bale → **89 bales**.
 
 The default max gross figures are the general mass limits: 9 axle B-double 62.5 t, 8 axle 59.0 t, 6 axle semi 42.5 t. Change them under **Truck setups** if a truck runs under HML or a permit. Weighed day-sheet loads also feed the learned bale weights.
 

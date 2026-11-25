@@ -258,6 +258,7 @@ const BOOKING_DEFAULTS = {
   product: '12.2M/40" Container General',
   quantity: 1,
   weightKg: 18000,
+  loadBufferKg: 500,     // day sheet: aim this far under the legal max gross
 };
 /* fill in order-number settings on materials saved before booking existed */
 function migrate(st){
@@ -1049,16 +1050,40 @@ const fmtDay = s => new Date(s + 'T12:00:00').toLocaleDateString('en-AU', { week
 const cfgOf = id => S.truckConfigs.find(c => c.id === id) || S.truckConfigs[0];
 let DAY = ymd();
 
+/* bale weight to plan a truck load with:
+   1) weighed day-sheet pickups of that commodity (truck loads, most relevant)
+   2) any weighed loads of it (containers too)  3) the material's set average */
+function planBaleKg(code, exceptId){
+  let net = 0, bales = 0, loads = 0;
+  S.loads.forEach(l => {
+    if (l.id === exceptId || l.material !== code || l.weighOut == null || l.tare == null || !(l.bales > 0)) return;
+    const n = l.weighOut - l.tare; if (n <= 0) return;
+    net += n; bales += l.bales; loads++;
+  });
+  if (loads) return { kg: net / bales, src: `from ${loads} weighed pickup${loads > 1 ? 's' : ''}` };
+  const lr = learned(code); if (lr) return { kg: lr.avg, src: `learned from ${lr.loads} load${lr.loads > 1 ? 's' : ''}` };
+  return { kg: mat(code).baleKg, src: 'set average' };
+}
+/* the same truck's most recent finished pickup */
+function lastPickup(l){
+  if (!l.rego) return null;
+  return S.loads.filter(x => x.id !== l.id && x.rego === l.rego && x.weighOut != null && x.tare != null && x.bales > 0 && x.date <= l.date)
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.order||0) - (a.order||0))[0] || null;
+}
 function loadCalc(l){
   const m = mat(l.material), cfg = cfgOf(l.config);
-  const payload = (cfg && l.tare != null) ? cfg.maxGross - l.tare : null;
-  let maxBales = (payload != null && m.baleKg) ? Math.floor(payload / m.baleKg) : null;
+  const buffer = S.settings.loadBufferKg ?? 500;
+  const plan = planBaleKg(l.material, l.id);
+  const payload = (cfg && l.tare != null) ? cfg.maxGross - l.tare : null;           // legal maximum
+  const aim = payload != null ? payload - buffer : null;                             // what to aim for
+  let maxBales = (aim != null && plan.kg) ? Math.floor(aim / plan.kg) : null;
   if (maxBales != null && cfg.maxBales) maxBales = Math.min(maxBales, cfg.maxBales);
   if (maxBales != null) maxBales = Math.max(0, maxBales);
-  const estGross = (l.tare != null && l.bales) ? l.tare + l.bales * m.baleKg : null;
+  const estGross = (l.tare != null && l.bales) ? l.tare + l.bales * plan.kg : null;
   const net = (l.weighOut != null && l.tare != null) ? l.weighOut - l.tare : null;
   const status = l.weighOut != null ? 'done' : l.tare != null ? 'in' : 'planned';
-  return { m, cfg, payload, maxBales, estGross, net, perBale: net != null && l.bales ? net / l.bales : null, status };
+  const last = lastPickup(l);
+  return { m, cfg, payload, aim, buffer, plan, maxBales, estGross, net, last, perBale: net != null && l.bales ? net / l.bales : null, status };
 }
 function rememberCompany(name){
   name = String(name||'').trim(); if (!name) return;
@@ -1102,7 +1127,7 @@ function renderDaySheet(){
 
       <div class="tbl-wrap"><table class="day">
         <tr><th>#</th><th>Company</th><th>Commodity</th><th>Truck</th><th>Rego</th><th class="n">Tare (t)</th>
-<th class="n">Can carry</th><th class="n">Max bales</th><th class="n">Bales loaded</th><th class="n">Est. gross</th>
+<th class="n">Can carry</th><th class="n">Suggested bales</th><th class="n">Bales loaded</th><th class="n">Est. gross</th>
             <th class="n">Weigh-out (t)</th><th class="n">Net</th><th>Status</th><th class="noprint"></th></tr>
         ${day.length ? day.map((l, i) => { const c = loadCalc(l); const over = c.estGross != null && c.cfg && c.estGross > c.cfg.maxGross; const overOut = l.weighOut != null && c.cfg && l.weighOut > c.cfg.maxGross; return `<tr>
           <td>${i+1}</td>
@@ -1111,8 +1136,8 @@ function renderDaySheet(){
           <td><select onchange="setLoad('${l.id}','config',this.value)" style="max-width:140px">${S.truckConfigs.map(x => `<option value="${esc(x.id)}" ${x.id===c.cfg?.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></td>
           <td><input value="${esc(l.rego||'')}" list="dl-regos" onchange="setLoad('${l.id}','rego',this.value)" style="width:85px" placeholder="—"></td>
           <td class="n"><input type="number" step="any" value="${tv(l.tare)}" onchange="setLoad('${l.id}','tare',this.value)" style="width:68px" placeholder="—"></td>
-          <td class="n"><b>${c.payload != null ? kg(c.payload) : '—'}</b><div class="muted">max ${c.cfg ? kg(c.cfg.maxGross) : '—'}</div></td>
-          <td class="n"><b class="big-n">${c.maxBales ?? '—'}</b>${c.maxBales != null ? `<div class="muted">@ ${bt(c.m.baleKg)}</div>` : ''}</td>
+          <td class="n"><b>${c.aim != null ? kg(c.aim) : '—'}</b><div class="muted">${c.payload != null ? `legal ${kg(c.payload)} − ${kg(c.buffer)}` : `max ${c.cfg ? kg(c.cfg.maxGross) : '—'}`}</div></td>
+          <td class="n" title="${c.aim != null ? `Aim for ${kg(c.aim)} net (${kg(c.payload)} legal − ${kg(c.buffer)} buffer) at ${bt(c.plan.kg)} per bale, ${c.plan.src}` : ''}"><b class="big-n">${c.maxBales ?? '—'}</b>${c.maxBales != null ? `<div class="muted">@ ${bt(c.plan.kg)} · ${esc(c.plan.src)}</div>` : ''}${c.last ? `<div class="muted">last time ${c.last.bales} ${esc(c.last.material)} = ${kg(c.last.weighOut - c.last.tare)}</div>` : ''}</td>
           <td class="n"><input type="number" min="0" value="${l.bales ?? ''}" onchange="setLoad('${l.id}','bales',this.value)" style="width:60px" placeholder="—"></td>
           <td class="n ${over?'neg':''}">${c.estGross != null ? kg(c.estGross) + (over ? '<div>over limit</div>' : '') : '—'}</td>
           <td class="n"><input type="number" step="any" value="${tv(l.weighOut)}" onchange="setLoad('${l.id}','weighOut',this.value)" style="width:72px" placeholder="—" class="${overOut?'neg':''}"></td>
@@ -1122,7 +1147,7 @@ function renderDaySheet(){
         </tr>`; }).join('') : `<tr><td colspan="14" class="muted">No loads ${DAY < today ? 'were recorded' : 'yet'} for this day.</td></tr>`}
         ${day.some(l => l.weighOut != null) ? `<tr><td colspan="11" class="n"><b>Total net out</b></td><td class="n"><b>${kg(totNet)}</b></td><td colspan="2"></td></tr>` : ''}
       </table></div>
-      <p class="muted noprint">Max bales = (max gross − tare) ÷ average bale weight for that commodity. Max gross comes from the truck setup (edit below). Weighed loads feed the learned bale weights on the Materials tab.</p>
+      <p class="muted noprint">Suggested bales = (max gross − tare − ${kg(S.settings.loadBufferKg ?? 500)} buffer) ÷ bale weight. The bale weight comes from previous weighed pickups of that commodity when there are any, otherwise the Materials average. Max gross comes from the truck setup (edit below). Weighed loads feed the learned bale weights on the Materials tab.</p>
     </div>
 
     ${toFillPanel()}
@@ -1141,6 +1166,9 @@ function renderDaySheet(){
 
     <div class="panel noprint">
       <h2>Truck setups</h2>
+      <div class="row" style="align-items:center;margin-bottom:8px"><label style="margin:0">Safety buffer under the limit (t)</label>
+        <input type="number" step="0.1" min="0" value="${tv(S.settings.loadBufferKg ?? 500, 2)}" style="width:90px" onchange="setBuffer(this.value)">
+        <span class="muted">Suggested bales aim this much under the legal max gross.</span></div>
       <p class="muted">Max gross is the legal gross mass for the combination: general mass limits are 62.5 t for a 9 axle B-double, 59.0 t for 8 axle and 42.5 t for a 6 axle semi. Change these if a truck runs under HML or a permit. <b>Max bales</b> (optional) caps it by deck space.</p>
       <div class="tbl-wrap"><table>
         <tr><th>Setup</th><th class="n">Max gross (t)</th><th class="n">Max bales (space)</th><th></th></tr>
@@ -1243,6 +1271,7 @@ function delLoad(id){
   if (!confirm(`Delete ${l.company} (${fmtDay(l.date)})?`)) return;
   S.loads = S.loads.filter(x => x.id !== id); save(); render();
 }
+function setBuffer(v){ const x = num(v); if (x == null || x < 0) return toast('Invalid buffer'); S.settings.loadBufferKg = x < 100 ? Math.round(x * 1000) : Math.round(x); save(); render(); }
 function setCfg(i, f, v){
   const c = S.truckConfigs[i];
   if (f === 'maxGross'){ const x = toKg(v); if (x == null) return toast('Invalid weight'); c.maxGross = x; }
