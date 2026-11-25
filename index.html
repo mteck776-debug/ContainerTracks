@@ -947,6 +947,9 @@ function openSwap(n){
     <div class="cols">
       <fieldset>
         <legend>Truck coming in</legend>
+        <label>Company</label>
+        <input id="sw-co" list="sw-cos" value="${esc(v?.company ?? S.settings.swapCompany ?? 'Linfox')}" autocomplete="off">
+        <datalist id="sw-cos">${[...new Set(['Linfox', ...S.companies])].map(c => `<option value="${esc(c)}">`).join('')}</datalist>
         <label>Truck rego</label>
         <input id="sw-rego" list="sw-regos" placeholder="e.g. 123ABC" oninput="swCalc()" autocomplete="off" value="${esc(v?.rego||'')}">
         <datalist id="sw-regos">${regos}</datalist>
@@ -1000,14 +1003,14 @@ function swRead(){
   }
   else if (sel){ inId = sel; inTare = tareOf(cont(sel)); }
   const outTare = tareOf(c);
-  const rego = normRego($('#sw-rego').value);
+  const rego = normRego($('#sw-rego').value), company = $('#sw-co').value.trim();
   const weighIn = toKg($('#sw-win').value), weighOut = toKg($('#sw-out').value);
   let truckTare = null, src = '';
   if (weighIn!=null && inTare!=null){ truckTare = weighIn - inTare; src = 'in'; }
   else if (rego && S.trucks[rego]){ truckTare = S.trucks[rego].tare; src = 'known'; }
   const expectedOut = (truckTare!=null && outTare!=null) ? truckTare + outTare + est : null;
   const net = (weighOut!=null && truckTare!=null && outTare!=null) ? weighOut - truckTare - outTare : null;
-  return { b, c, m, bales, est, inId, inTare, isNew, newRec, outTare, rego, weighIn, weighOut, truckTare, src, expectedOut, net };
+  return { b, c, m, bales, est, inId, inTare, isNew, newRec, outTare, rego, company, weighIn, weighOut, truckTare, src, expectedOut, net };
 }
 
 function swCalc(){
@@ -1074,9 +1077,10 @@ function saveVisit(){
     if (bayOf(r.inId)) return toast(`${r.inId} is already in Bay ${bayOf(r.inId).n}`);
     commitNewCont(r.newRec);
   }
-  r.b.visit = { rego: r.rego, inId: r.inId, weighIn: r.weighIn, nextMat: $('#sw-mat').value, at: new Date().toISOString() };
+  rememberCompany(r.company);
+  r.b.visit = { rego: r.rego, company: r.company, inId: r.inId, weighIn: r.weighIn, nextMat: $('#sw-mat').value, at: new Date().toISOString() };
   r.b.bales = r.bales;
-  if (r.rego && r.truckTare!=null) S.trucks[r.rego] = { tare: r.truckTare, updated: r.b.visit.at };
+  if (r.rego && r.truckTare!=null) S.trucks[r.rego] = Object.assign({}, S.trucks[r.rego], { tare: r.truckTare, updated: r.b.visit.at });
   save(); closeDlg(); render(); toast(`Weigh-in saved — Bay ${r.b.n} waiting for weigh-out`);
 }
 function cancelVisit(n){ if (!confirm('Clear the saved weigh-in for this bay?')) return; bay(n).visit = null; save(); render(); }
@@ -1092,13 +1096,14 @@ function doSwap(){
   if (r.weighOut == null && !confirm('No 2nd weigh entered, so there is no actual net weight yet.\n\nComplete the swap anyway? You can add the weigh-out later in History.')) return;
   const now = new Date().toISOString();
   S.history.unshift({
-    id: uid(), date: now, bay: r.b.n, rego: r.rego || '',
+    id: uid(), date: now, bay: r.b.n, rego: r.rego || '', company: r.company || '',
     orderNo: r.b.booking?.orderNo || '',
     outId: r.c.id, outTare: r.outTare, material: r.m.code, bales: r.bales, target: targetOf(r.b) || null, baleKg: r.m.baleKg, estNet: r.est,
     inId: r.inId, inTare: r.inTare || 0, weighIn: r.weighIn, weighInAt: r.b.visit?.at || now,
     truckTare: r.truckTare, predicted: r.expectedOut, actualOut: r.weighOut, startedAt: r.b.startedAt
   });
-  if (r.rego && r.weighIn!=null && r.truckTare!=null) S.trucks[r.rego] = { tare: r.truckTare, updated: now };
+  if (r.rego && r.weighIn!=null && r.truckTare!=null) S.trucks[r.rego] = Object.assign({}, S.trucks[r.rego], { tare: r.truckTare, updated: now });
+  rememberCompany(r.company);
   r.c.outSince = now;
   if (r.inId){
     const ic = r.isNew ? commitNewCont(r.newRec) : cont(r.inId);
@@ -1735,17 +1740,17 @@ function renderHistory(){
       </div>
       <p class="muted"><b>Net (weighed)</b> = 2nd weigh − 1st weigh + empty container tare − full container tare. If a load is missing its 2nd weigh, click Edit to add it. Weighed loads feed the learned bale averages in Setup → Materials.</p>
       <div class="tbl-wrap"><table>
-        <tr><th>Date</th><th>Bay</th><th>Out</th><th>Mat.</th><th class="n">Bales / target</th><th class="n">Est. load</th><th>Order no.</th><th>Truck</th><th>In</th>
+        <tr><th>Date</th><th>Bay</th><th>Out</th><th>Mat.</th><th class="n">Bales / target</th><th class="n">Est. load</th><th>Order no.</th><th>Company</th><th>Truck</th><th>In</th>
             <th class="n">1st weigh</th><th class="n">2nd weigh</th><th class="n">Net (weighed)</th><th class="n">t/bale</th><th class="n">vs bale est.</th><th></th></tr>
         ${h.length ? h.map(x => { const c = hCalc(x); return `<tr>
           <td>${fmtDate(x.date)}</td><td>${x.bay}</td><td><b>${esc(x.outId)}</b></td>
           <td><span class="chip" style="--mc:${esc(mat(x.material).color)}">${esc(x.material)}</span></td>
-          <td class="n">${x.bales}${x.target ? `<span class="muted"> / ${x.target}</span>` : ''}</td><td class="n">${kg(x.estNet)}</td><td>${esc(x.orderNo||'—')}</td><td>${esc(x.rego||'—')}</td><td>${esc(x.inId||'—')}</td>
+          <td class="n">${x.bales}${x.target ? `<span class="muted"> / ${x.target}</span>` : ''}</td><td class="n">${kg(x.estNet)}</td><td>${esc(x.orderNo||'—')}</td><td><b>${esc(x.company||'—')}</b></td><td>${esc(x.rego||'—')}</td><td>${esc(x.inId||'—')}</td>
           <td class="n">${kg(x.weighIn)}</td><td class="n">${kg(x.actualOut)}</td>
           <td class="n">${c.actualNet!=null ? `<b>${kg(c.actualNet)}</b>` : '<span class="warn">needs 2nd weigh</span>'}</td><td class="n">${c.perBale!=null?bt(c.perBale):'—'}</td>
           <td class="n ${c.actualNet==null?'':Math.abs(c.actualNet-x.estNet)>1000?'neg':'pos'}">${c.actualNet!=null?signed(c.actualNet-x.estNet):'—'}</td>
           <td style="display:flex;gap:4px"><button class="small" onclick="editHist('${x.id}')">Edit</button><button class="small danger" onclick="delHistRow('${x.id}')" title="Delete this load">✕</button></td>
-        </tr>`; }).join('') : `<tr><td colspan="15" class="muted">No loads dispatched yet. Use <b>Truck swap</b> on a bay.</td></tr>`}
+        </tr>`; }).join('') : `<tr><td colspan="16" class="muted">No loads dispatched yet. Use <b>Truck swap</b> on a bay.</td></tr>`}
       </table></div>
     </div>`;
 }
@@ -1754,6 +1759,8 @@ function editHist(id){
   openDlg(`Load ${x.outId} — ${fmtDate(x.date)}`, `
     <div class="cols">
       <div>
+        <label>Company</label><input id="eh-co" list="eh-cos" value="${esc(x.company||'')}" style="width:100%">
+        <datalist id="eh-cos">${[...new Set(['Linfox', ...S.companies])].map(c => `<option value="${esc(c)}">`).join('')}</datalist>
         <label>Truck rego</label><input id="eh-rego" value="${esc(x.rego||'')}" style="width:100%">
         <label>Bales</label><input id="eh-bales" type="number" value="${x.bales}" style="width:100%">
         <label>1st weigh — truck in (t)</label><input id="eh-in" type="number" step="any" value="${tv(x.weighIn)}" style="width:100%">
@@ -1770,6 +1777,7 @@ function editHist(id){
 function saveHist(id){
   const x = S.history.find(h => h.id===id);
   x.rego = normRego($('#eh-rego').value);
+  x.company = $('#eh-co').value.trim(); rememberCompany(x.company);
   x.bales = Math.max(0, Math.round(num($('#eh-bales').value) ?? x.bales));
   x.estNet = x.bales * x.baleKg;
   x.weighIn = toKg($('#eh-in').value);
@@ -1786,8 +1794,8 @@ function delHistRow(id){
 function delHist(id){ if (!confirm('Delete this load from history?')) return; S.history = S.history.filter(h => h.id!==id); save(); closeDlg(); render(); }
 function exportCSV(){
   const T = v => v==null || v==='' ? '' : (v/1000).toFixed(3);
-  const head = ['Date','Bay','Container out','Out tare (t)','Material','Bales','Target bales','Avg t/bale used','Est load (t)','Linfox order no.','Truck rego','Container in','In tare (t)','1st weigh (t)','Truck tare (t)','Expected 2nd weigh (t)','2nd weigh (t)','Net weighed (t)','Actual t/bale','Net vs bale est (t)'];
-  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, T(x.outTare), x.material, x.bales, x.target??'', T(x.baleKg), T(x.estNet), x.orderNo||'', x.rego, x.inId||'', T(x.inTare), T(x.weighIn), T(c.truckTare), T(c.predicted), T(x.actualOut), T(c.actualNet), T(c.perBale), T(c.actualNet!=null ? c.actualNet - x.estNet : null)]; });
+  const head = ['Date','Bay','Container out','Out tare (t)','Material','Bales','Target bales','Avg t/bale used','Est load (t)','Linfox order no.','Company','Truck rego','Container in','In tare (t)','1st weigh (t)','Truck tare (t)','Expected 2nd weigh (t)','2nd weigh (t)','Net weighed (t)','Actual t/bale','Net vs bale est (t)'];
+  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, T(x.outTare), x.material, x.bales, x.target??'', T(x.baleKg), T(x.estNet), x.orderNo||'', x.company||'', x.rego, x.inId||'', T(x.inTare), T(x.weighIn), T(c.truckTare), T(c.predicted), T(x.actualOut), T(c.actualNet), T(c.perBale), T(c.actualNet!=null ? c.actualNet - x.estNet : null)]; });
   const csv = [head, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   download(`container-loads-${new Date().toISOString().slice(0,10)}.csv`, csv, 'text/csv');
 }
