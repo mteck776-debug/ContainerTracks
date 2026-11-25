@@ -151,6 +151,9 @@
   .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;background:#e7eaee;color:#4a5563}
   .pill.in{background:#fff3e0;color:#8a4b08} .pill.done{background:#e9f7ef;color:var(--good)}
   .tag{display:inline-flex;gap:6px;align-items:center;background:#eef1f4;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:13px}
+  .lotno{font:800 15px ui-monospace,Consolas,monospace;letter-spacing:.5px;background:#fff7d6;border:1px solid #ecd27a;border-radius:6px;padding:1px 6px;white-space:nowrap}
+  .pill.warn{background:#fff3e0;color:#8a4b08}
+  .panel.lot-sold{border-left:6px solid #f0b429}
   .tag a{color:var(--muted);text-decoration:none}
   @media print{
     header,.actions,nav,.noprint,#toast{display:none !important}
@@ -166,6 +169,7 @@
     <nav id="nav">
       <button data-v="daysheet" class="on">Day Sheet</button>
       <button data-v="yard">Containers</button>
+      <button data-v="lots">CRS Lots</button>
       <button data-v="containers">Tares &amp; Trucks</button>
       <button data-v="materials">Materials</button>
       <button data-v="history">History</button>
@@ -268,6 +272,15 @@ function migrate(st){
   });
   st.settings = Object.assign({}, BOOKING_DEFAULTS, st.settings || {});
   st.loads = st.loads || []; st.companies = st.companies || []; st.forms = st.forms || {};
+  st.lots = st.lots || [];
+  if (!st.crsMaterials || !st.crsMaterials.length) st.crsMaterials = [
+    { code:'CRS ALI',        name:'CRS Aluminium',   color:'#64748b' },
+    { code:'CRS PET Clear',  name:'CRS PET Clear',   color:'#0ea5e9' },
+    { code:'CRS PET Colour', name:'CRS PET Colour',  color:'#16a34a' },
+    { code:'CRS HDPE',       name:'CRS HDPE',        color:'#ca8a04' },
+    { code:'CRS Steel',      name:'CRS Steel',       color:'#334155' },
+    { code:'CRS LPB',        name:'CRS Liquid Paperboard', color:'#a16207' },
+  ];
   if ('genuine' in st.forms){                 // earlier version kept one Genuine form
     const g = st.forms.genuine; delete st.forms.genuine;
     if (g && !st.forms[locKey(GRG)]) st.forms[locKey(GRG)] = Object.assign({ fields:['Text 1','Text 2'], map:{ 'Text 1':'container', 'Text 2':'tare' } }, g);
@@ -419,7 +432,7 @@ $('#nav').addEventListener('click', e => {
   render();
 });
 function render(){
-  ({ yard:renderYard, daysheet:renderDaySheet, containers:renderContainers, materials:renderMaterials, history:renderHistory, backup:renderBackup })[view]();
+  ({ yard:renderYard, daysheet:renderDaySheet, lots:renderLots, containers:renderContainers, materials:renderMaterials, history:renderHistory, backup:renderBackup })[view]();
 }
 
 /* =========================================================
@@ -1096,7 +1109,10 @@ function loadCalc(l){
   let maxBales = (aim != null && plan.kg) ? Math.floor(aim / plan.kg) : null;
   if (maxBales != null && cfg.maxBales) maxBales = Math.min(maxBales, cfg.maxBales);
   if (maxBales != null) maxBales = Math.max(0, maxBales);
-  const estGross = (l.tare != null && l.bales) ? l.tare + l.bales * plan.kg : null;
+  const lot = l.lotId ? S.lots.find(x => x.id === l.lotId) : null;
+  const estGross = l.tare == null ? null
+    : (lot && lot.weightKg != null) ? l.tare + lot.weightKg          // sold lot: known weight
+    : (l.bales && plan.kg) ? l.tare + l.bales * plan.kg : null;
   const net = (l.weighOut != null && l.tare != null) ? l.weighOut - l.tare : null;
   const status = l.weighOut != null ? 'done' : l.tare != null ? 'in' : 'planned';
   const last = lastPickup(l);
@@ -1149,12 +1165,12 @@ function renderDaySheet(){
         ${day.length ? day.map((l, i) => { const c = loadCalc(l); const over = c.estGross != null && c.cfg && c.estGross > c.cfg.maxGross; const overOut = l.weighOut != null && c.cfg && l.weighOut > c.cfg.maxGross; return `<tr>
           <td>${i+1}</td>
           <td><input value="${esc(l.company)}" list="dl-companies" onchange="setLoad('${l.id}','company',this.value)" style="width:140px"></td>
-          <td><select onchange="setLoad('${l.id}','material',this.value)"><option></option>${matOpts(l.material)}</select></td>
+          <td>${l.lotId ? `<span class="chip" style="--mc:${esc(anyMat(l.material).color)}">${esc(l.material)}</span><div>${(() => { const lot = S.lots.find(x => x.id === l.lotId); return lot ? lotNoHTML(lot) : ''; })()}</div>` : `<select onchange="setLoad('${l.id}','material',this.value)"><option></option>${matOpts(l.material)}</select>`}</td>
           <td><select onchange="setLoad('${l.id}','config',this.value)" style="max-width:140px">${S.truckConfigs.map(x => `<option value="${esc(x.id)}" ${x.id===c.cfg?.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></td>
           <td><input value="${esc(l.rego||'')}" list="dl-regos" onchange="setLoad('${l.id}','rego',this.value)" style="width:85px" placeholder="—"></td>
           <td class="n"><input type="number" step="any" value="${tv(l.tare)}" onchange="setLoad('${l.id}','tare',this.value)" style="width:68px" placeholder="—"></td>
           <td class="n"><b>${c.aim != null ? kg(c.aim) : '—'}</b><div class="muted">${c.payload != null ? `legal ${kg(c.payload)} − ${kg(c.buffer)}` : `max ${c.cfg ? kg(c.cfg.maxGross) : '—'}`}</div></td>
-          <td class="n" title="${c.aim != null ? `Aim for ${kg(c.aim)} net (${kg(c.payload)} legal − ${kg(c.buffer)} buffer) at ${bt(c.plan.kg)} per bale, ${c.plan.src}` : ''}"><b class="big-n">${c.maxBales ?? '—'}</b>${c.maxBales != null ? `<div class="muted">@ ${bt(c.plan.kg)} · ${esc(c.plan.src)}</div>` : ''}${c.last ? `<div class="muted">last time ${c.last.bales} ${esc(c.last.material)} = ${kg(c.last.weighOut - c.last.tare)}</div>` : ''}</td>
+          ${l.lotId ? `<td class="n"><b class="big-n">${(S.lots.find(x => x.id === l.lotId) || {}).bales ?? '—'}</b><div class="muted">sold lot</div></td>` : `<td class="n" title="${c.aim != null ? `Aim for ${kg(c.aim)} net (${kg(c.payload)} legal − ${kg(c.buffer)} buffer) at ${bt(c.plan.kg)} per bale, ${c.plan.src}` : ''}"><b class="big-n">${c.maxBales ?? '—'}</b>${c.maxBales != null ? `<div class="muted">@ ${bt(c.plan.kg)} · ${esc(c.plan.src)}</div>` : ''}${c.last ? `<div class="muted">last time ${c.last.bales} ${esc(c.last.material)} = ${kg(c.last.weighOut - c.last.tare)}</div>` : ''}</td>`}
           <td class="n"><input type="number" min="0" value="${l.bales ?? ''}" onchange="setLoad('${l.id}','bales',this.value)" style="width:60px" placeholder="—"></td>
           <td class="n ${over?'neg':''}">${c.estGross != null ? kg(c.estGross) + (over ? '<div>over limit</div>' : '') : '—'}</td>
           <td class="n"><input type="number" step="any" value="${tv(l.weighOut)}" onchange="setLoad('${l.id}','weighOut',this.value)" style="width:72px" placeholder="—" class="${overOut?'neg':''}"></td>
@@ -1167,6 +1183,7 @@ function renderDaySheet(){
       <p class="muted noprint">Suggested bales = (max gross − tare − ${kg(S.settings.loadBufferKg ?? 500)} buffer) ÷ bale weight. The bale weight comes from previous weighed pickups of that commodity when there are any, otherwise the Materials average. Max gross comes from the truck setup (edit below). Weighed loads feed the learned bale weights on the Materials tab.</p>
     </div>
 
+    ${lotsAwaitingPanel()}
     ${toFillPanel()}
 
     <div class="panel noprint">
@@ -1175,7 +1192,7 @@ function renderDaySheet(){
         <tr><th>Date</th><th>Company</th><th>Commodity</th><th>Truck</th><th>Notes</th><th></th></tr>
         ${upcoming.map(l => `<tr>
           <td><a href="#" onclick="DAY='${l.date}';render();return false"><b>${fmtDay(l.date)}</b></a></td>
-          <td>${esc(l.company)}</td><td>${l.material ? `<span class="chip" style="--mc:${esc(mat(l.material).color)}">${esc(l.material)}</span>` : '—'}</td>
+          <td>${esc(l.company)}</td><td>${l.material ? `<span class="chip" style="--mc:${esc(anyMat(l.material).color)}">${esc(l.material)}</span>` : '—'}</td>
           <td>${esc(cfgOf(l.config)?.name || '')}</td><td class="muted">${esc(l.notes||'')}</td>
           <td><button class="small danger" onclick="delLoad('${l.id}')">✕</button></td></tr>`).join('')}
       </table></div>` : '<p class="muted">Nothing planned yet. Pick a future date above and add loads to it.</p>'}
@@ -1266,6 +1283,11 @@ function setLoad(id, f, v){
   else if (f === 'rego'){ l.rego = normRego(v); const t = S.trucks[l.rego]; if (t && l.tare == null){ l.tare = t.tare; if (t.config) l.config = t.config; } }
   else { l[f] = String(v).trim(); if (f === 'company') rememberCompany(l.company); }
   if (f === 'tare' || f === 'rego' || f === 'config') rememberTruck(l);
+  if (l.lotId){
+    const lot = S.lots.find(x => x.id === l.lotId);
+    if (lot && f === 'weighOut' && l.weighOut != null && lot.status !== 'collected'){ lot.status = 'collected'; lot.collectedOn = l.date; toast(`${lot.lotNo} marked collected`); }
+    if (lot && lot.transport && (f === 'company' || f === 'rego')) lot.transport[f] = l[f];
+  }
   save(); render();
 }
 function editLoad(id){
@@ -1281,11 +1303,14 @@ function editLoad(id){
 function saveLoadMore(id){
   const l = S.loads.find(x => x.id === id);
   l.date = $('#el-date').value || l.date; l.notes = $('#el-notes').value.trim();
+  const lot = l.lotId && S.lots.find(x => x.id === l.lotId); if (lot && lot.transport) lot.transport.date = l.date;
   save(); closeDlg(); render(); toast('Load updated');
 }
 function delLoad(id){
   const l = S.loads.find(x => x.id === id);
-  if (!confirm(`Delete ${l.company} (${fmtDay(l.date)})?`)) return;
+  const lot = l.lotId && S.lots.find(x => x.id === l.lotId);
+  if (!confirm(`Delete ${l.company} (${fmtDay(l.date)})?${lot ? `\n\nLot ${lot.lotNo} goes back to "Sold — awaiting transport".` : ''}`)) return;
+  if (lot && lot.status === 'transport'){ lot.status = 'sold'; lot.transport = null; }
   S.loads = S.loads.filter(x => x.id !== id); save(); render();
 }
 function setBuffer(v){ const x = num(v); if (x == null || x < 0) return toast('Invalid buffer'); S.settings.loadBufferKg = x < 100 ? Math.round(x * 1000) : Math.round(x); save(); render(); }
@@ -1303,6 +1328,207 @@ function addCfg(){
 }
 function delCfg(i){ if (!confirm(`Delete ${S.truckConfigs[i].name}?`)) return; S.truckConfigs.splice(i,1); save(); render(); }
 function delCompany(name){ S.companies = S.companies.filter(c => c !== name); save(); render(); }
+
+/* =========================================================
+   CRS LOTS — Containers for Change eligible material sold by auction
+   On auction → Sold (awaiting transport) → Transport booked → Collected
+   Sold lots show on the Day Sheet as "awaiting transport"; once transport is
+   booked the pickup becomes a Day Sheet load on that date.
+   ========================================================= */
+const LOT_STAGES = [
+  ['auction',   'On auction',                 ''],
+  ['sold',      'Sold — awaiting transport',  'warn'],
+  ['transport', 'Transport booked',           'in'],
+  ['collected', 'Collected',                  'done'],
+];
+const crsMat = code => S.crsMaterials.find(m => m.code === code) || { code, name: code, color: '#6b7a8a' };
+const anyMat = code => S.materials.find(m => m.code === code) || S.crsMaterials.find(m => m.code === code) || mat(code);
+const normLot = s => { s = String(s || '').toUpperCase().replace(/\s+/g, '').trim(); return s && !s.startsWith('#') ? '#' + s : s; };
+const lotChip = l => `<span class="chip" style="--mc:${esc(crsMat(l.commodity).color)}">${esc(l.commodity)}</span>`;
+const lotNoHTML = l => `<span class="lotno">${esc(l.lotNo)}</span>`;
+const lotLoad = l => S.loads.find(x => x.lotId === l.id);
+
+function renderLots(){
+  const by = st => S.lots.filter(l => l.status === st);
+  const crsOpts = sel => S.crsMaterials.map(m => `<option value="${esc(m.code)}" ${m.code===sel?'selected':''}>${esc(m.code)}</option>`).join('');
+  const onSale = by('auction');
+  const dupes = new Set(onSale.map(l => l.commodity).filter((c, i, a) => a.indexOf(c) !== i));
+  const row = (l, actions) => `<tr>
+      <td>${lotNoHTML(l)}</td><td>${lotChip(l)}${dupes.has(l.commodity) && l.status === 'auction' ? ' <span class="pill warn" title="More than one lot of this commodity on auction">2+ on sale</span>' : ''}</td>
+      <td class="n"><b>${l.bales ?? '—'}</b></td><td class="n"><b>${l.weightKg != null ? kg(l.weightKg) : '—'}</b></td>
+      <td class="n muted">${l.bales && l.weightKg ? bt(l.weightKg / l.bales) : ''}</td>
+      <td>${l.status === 'auction' ? `<span class="muted">listed ${fmtDay(l.listedOn || ymd(l.createdAt))}</span>`
+          : l.status === 'sold' ? `sold ${fmtDay(l.soldOn)}${l.buyer ? ` · ${esc(l.buyer)}` : ''}`
+          : l.transport ? `<b>${esc(l.transport.company || '')}</b> · ${fmtDay(l.transport.date)}${l.transport.rego ? ` · ${esc(l.transport.rego)}` : ''}${l.status === 'collected' && l.collectedOn ? `<div class="muted">collected ${fmtDay(l.collectedOn)}</div>` : ''}` : ''}
+          ${l.notes ? `<div class="muted" style="white-space:normal;max-width:260px">${esc(l.notes)}</div>` : ''}</td>
+      <td style="white-space:nowrap">${actions}<button class="small" onclick="editLot('${l.id}')">Edit</button> <button class="small danger" onclick="delLot('${l.id}')" title="Delete lot">✕</button></td></tr>`;
+  const table = (list, actions, empty) => list.length ? `<div class="tbl-wrap"><table>
+      <tr><th>Lot</th><th>Commodity</th><th class="n">Bales</th><th class="n">Weight</th><th class="n">Per bale</th><th>Details</th><th></th></tr>
+      ${list.map(l => row(l, actions(l))).join('')}
+      ${list.length > 1 ? `<tr><td colspan="2" class="n"><b>Total</b></td><td class="n"><b>${list.reduce((s, l) => s + (l.bales || 0), 0)}</b></td><td class="n"><b>${kg(list.reduce((s, l) => s + (l.weightKg || 0), 0))}</b></td><td colspan="3"></td></tr>` : ''}
+    </table></div>` : `<p class="muted">${empty}</p>`;
+  const collected = by('collected').sort((a, b) => String(b.collectedOn).localeCompare(String(a.collectedOn)));
+
+  $('#main').innerHTML = `
+    <datalist id="dl-companies">${S.companies.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    <div class="panel">
+      <h2>CRS lots</h2>
+      <div class="addload">
+        <div><label>Lot number</label><input id="lt-no" placeholder="#L51528" style="width:130px;font:700 16px ui-monospace,Consolas,monospace"></div>
+        <div><label>Commodity</label><select id="lt-com">${crsOpts(S.crsMaterials[0]?.code)}</select></div>
+        <div><label>Bales</label><input id="lt-bales" type="number" min="0" style="width:80px"></div>
+        <div><label>Total weight (t)</label><input id="lt-wt" type="number" step="any" style="width:100px"></div>
+        <div><label>Status</label><select id="lt-st"><option value="auction">On auction</option><option value="sold">Sold</option></select></div>
+        <div><label>Notes</label><input id="lt-notes" style="width:180px"></div>
+        <div><label>&nbsp;</label><button class="primary" onclick="addLot()">Add lot</button></div>
+      </div>
+    </div>
+    <div class="panel"><h2>On auction <span class="muted">(${onSale.length})</span></h2>
+      ${table(onSale, l => `<button class="small primary" onclick="openSold('${l.id}')">Mark sold</button> `, 'No lots on auction.')}</div>
+    <div class="panel lot-sold"><h2>Sold — awaiting transport <span class="muted">(${by('sold').length})</span></h2>
+      <p class="muted" style="margin-top:-6px">These show on the Day Sheet until transport is booked.</p>
+      ${table(by('sold'), l => `<button class="small primary" onclick="openTransport('${l.id}')">Confirm transport</button> `, 'Nothing waiting for transport.')}</div>
+    <div class="panel"><h2>Transport booked <span class="muted">(${by('transport').length})</span></h2>
+      <p class="muted" style="margin-top:-6px">Each one is on the Day Sheet on its pickup date. It moves to Collected when the truck's weigh-out is entered there, or press Collected.</p>
+      ${table(by('transport').sort((a, b) => String(a.transport?.date).localeCompare(String(b.transport?.date))), l => `<button class="small" onclick="openTransport('${l.id}')">Change transport</button> <button class="small primary" onclick="markCollected('${l.id}')">Collected</button> `, 'No transport booked.')}</div>
+    <div class="panel"><h2>Collected <span class="muted">(${collected.length})</span></h2>
+      ${table(collected.slice(0, LOTS_SHOWN), l => `<button class="small" onclick="undoCollected('${l.id}')" title="Move back to Transport booked">Undo</button> `, 'None yet.')}
+      ${collected.length > LOTS_SHOWN ? `<button onclick="LOTS_SHOWN+=25;render()">Show more</button>` : ''}</div>
+    <div class="panel">
+      <h2>CRS commodities</h2>
+      <div class="row">${S.crsMaterials.map((m, i) => `<span class="tag"><input type="color" value="${esc(m.color)}" onchange="S.crsMaterials[${i}].color=this.value;save();render()" style="width:22px;height:18px;padding:0;border:0">${esc(m.code)} <a href="#" onclick="delCrs(${i});return false">✕</a></span>`).join('')}</div>
+      <div class="row" style="margin-top:10px"><input id="crs-new" placeholder="e.g. CRS Glass"><button onclick="addCrs()">Add commodity</button></div>
+    </div>`;
+}
+let LOTS_SHOWN = 10;
+
+function addLot(){
+  const lotNo = normLot($('#lt-no').value);
+  if (!lotNo) return toast('Enter the lot number');
+  if (S.lots.some(l => l.lotNo === lotNo)) return toast(`${lotNo} already exists`);
+  const status = $('#lt-st').value, now = new Date().toISOString();
+  const bales = num($('#lt-bales').value), wt = toKg($('#lt-wt').value);
+  S.lots.push({ id: uid(), lotNo, commodity: $('#lt-com').value, bales: bales != null ? Math.round(bales) : null, weightKg: wt,
+                status, notes: $('#lt-notes').value.trim(), createdAt: now, listedOn: ymd(), soldOn: status === 'sold' ? ymd() : null });
+  save(); render(); toast(`${lotNo} added`);
+}
+function lotFieldsHTML(l){
+  return `<div class="cols">
+      <div><label>Bales sold</label><input id="ls-bales" type="number" min="0" value="${l.bales ?? ''}" style="width:100%"></div>
+      <div><label>Total weight of all bales (t)</label><input id="ls-wt" type="number" step="any" value="${tv(l.weightKg)}" style="width:100%"></div>
+    </div>`;
+}
+function readLotFields(l){
+  const b = num($('#ls-bales').value), w = toKg($('#ls-wt').value);
+  if (b != null) l.bales = Math.round(b);
+  if ($('#ls-wt').value.trim() !== '') l.weightKg = w;
+}
+function openSold(id){
+  const l = S.lots.find(x => x.id === id);
+  openDlg(`Mark ${l.lotNo} sold`, `<p>${lotNoHTML(l)} ${lotChip(l)}</p>${lotFieldsHTML(l)}
+    <div class="cols"><div><label>Sold on</label><input id="ls-date" type="date" value="${ymd()}" style="width:100%"></div>
+      <div><label>Buyer (optional)</label><input id="ls-buyer" list="dl-companies" style="width:100%"></div></div>`,
+    `<button onclick="closeDlg()">Cancel</button><button class="primary" onclick="doSold('${id}')">Mark sold</button>`);
+}
+function doSold(id){
+  const l = S.lots.find(x => x.id === id); readLotFields(l);
+  l.status = 'sold'; l.soldOn = $('#ls-date').value || ymd(); l.buyer = $('#ls-buyer').value.trim();
+  if (l.buyer) rememberCompany(l.buyer);
+  save(); closeDlg(); render(); toast(`${l.lotNo} sold — now awaiting transport`);
+}
+function openTransport(id){
+  const l = S.lots.find(x => x.id === id), t = l.transport || {};
+  openDlg(`Transport for ${l.lotNo}`, `<p>${lotNoHTML(l)} ${lotChip(l)} · ${l.bales ?? '?'} bales · ${l.weightKg != null ? kg(l.weightKg) : '?'}</p>
+    <datalist id="dl-companies">${S.companies.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    <datalist id="dl-regos">${Object.keys(S.trucks).sort().map(r => `<option value="${esc(r)}">`).join('')}</datalist>
+    <div class="cols">
+      <div><label>Transport company</label><input id="lt-co" list="dl-companies" value="${esc(t.company || l.buyer || '')}" style="width:100%"></div>
+      <div><label>Pickup date</label><input id="lt-date" type="date" value="${t.date || ymd()}" style="width:100%"></div>
+      <div><label>Truck</label><select id="lt-cfg" style="width:100%">${S.truckConfigs.map(c => `<option value="${esc(c.id)}" ${c.id === (t.config || S.truckConfigs[0]?.id) ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+      <div><label>Rego (if known)</label><input id="lt-rego" list="dl-regos" value="${esc(t.rego || '')}" style="width:100%"></div>
+    </div>
+    <label>Notes</label><input id="lt-tnotes" value="${esc(t.notes || '')}" style="width:100%">
+    <p class="muted">The pickup goes onto the Day Sheet for that date.</p>`,
+    `<button onclick="closeDlg()">Cancel</button><button class="primary" onclick="doTransport('${id}')">Confirm transport</button>`);
+}
+function doTransport(id){
+  const l = S.lots.find(x => x.id === id);
+  const company = $('#lt-co').value.trim(), date = $('#lt-date').value;
+  if (!company) return toast('Enter the transport company');
+  if (!date) return toast('Pick the pickup date');
+  l.transport = { company, date, config: $('#lt-cfg').value, rego: normRego($('#lt-rego').value), notes: $('#lt-tnotes').value.trim(), confirmedAt: new Date().toISOString() };
+  if (l.status !== 'collected') l.status = 'transport';
+  rememberCompany(company);
+  /* the matching Day Sheet load */
+  let d = lotLoad(l);
+  if (!d){ d = { id: uid(), lotId: l.id, order: Date.now(), tare: null, weighOut: null }; S.loads.push(d); }
+  Object.assign(d, { date, company, material: l.commodity, config: l.transport.config, rego: l.transport.rego || d.rego || '', bales: l.bales, notes: `Lot ${l.lotNo}${l.transport.notes ? ' — ' + l.transport.notes : ''}` });
+  const tk = S.trucks[d.rego]; if (tk && d.tare == null) d.tare = tk.tare;
+  save(); closeDlg(); render(); toast(`${l.lotNo}: transport booked for ${fmtDay(date)}`);
+}
+function markCollected(id){
+  const l = S.lots.find(x => x.id === id);
+  l.status = 'collected'; l.collectedOn = ymd(); save(); render(); toast(`${l.lotNo} collected`);
+}
+function undoCollected(id){ const l = S.lots.find(x => x.id === id); l.status = l.transport ? 'transport' : 'sold'; l.collectedOn = null; save(); render(); }
+function editLot(id){
+  const l = S.lots.find(x => x.id === id);
+  openDlg(`Edit ${l.lotNo}`, `
+    <div class="cols">
+      <div><label>Lot number</label><input id="le-no" value="${esc(l.lotNo)}" style="width:100%;font:700 16px ui-monospace,Consolas,monospace"></div>
+      <div><label>Commodity</label><select id="le-com" style="width:100%">${S.crsMaterials.map(m => `<option ${m.code===l.commodity?'selected':''}>${esc(m.code)}</option>`).join('')}</select></div>
+    </div>
+    ${lotFieldsHTML(l)}
+    <div class="cols">
+      <div><label>Stage</label><select id="le-st" style="width:100%">${LOT_STAGES.map(([v, t]) => `<option value="${v}" ${v===l.status?'selected':''}>${t}</option>`).join('')}</select></div>
+      <div><label>Notes</label><input id="le-notes" value="${esc(l.notes||'')}" style="width:100%"></div>
+    </div>`,
+    `<button onclick="closeDlg()">Cancel</button><button class="primary" onclick="saveLot('${id}')">Save</button>`);
+}
+function saveLot(id){
+  const l = S.lots.find(x => x.id === id), no = normLot($('#le-no').value);
+  if (!no) return toast('Enter the lot number');
+  if (S.lots.some(x => x.id !== id && x.lotNo === no)) return toast(`${no} already exists`);
+  l.lotNo = no; l.commodity = $('#le-com').value; readLotFields(l);
+  l.status = $('#le-st').value; l.notes = $('#le-notes').value.trim();
+  if (l.status === 'sold' && !l.soldOn) l.soldOn = ymd();
+  if (l.status === 'collected' && !l.collectedOn) l.collectedOn = ymd();
+  const d = lotLoad(l); if (d){ d.material = l.commodity; d.bales = l.bales; d.notes = d.notes.replace(/^Lot #\S+/, `Lot ${l.lotNo}`); }
+  save(); closeDlg(); render(); toast('Lot updated');
+}
+function delLot(id){
+  const l = S.lots.find(x => x.id === id), d = lotLoad(l);
+  if (!confirm(`Delete lot ${l.lotNo}?${d ? `\n\nIts Day Sheet pickup on ${fmtDay(d.date)} is removed too.` : ''}`)) return;
+  S.lots = S.lots.filter(x => x.id !== id); if (d) S.loads = S.loads.filter(x => x.id !== d.id);
+  save(); render();
+}
+function addCrs(){
+  let c = $('#crs-new').value.trim(); if (!c) return;
+  if (!/^CRS\b/i.test(c)) c = 'CRS ' + c;
+  if (S.crsMaterials.some(m => m.code.toLowerCase() === c.toLowerCase())) return toast('Already in the list');
+  const pal = ['#0e7490','#7c3aed','#be185d','#15803d','#b45309','#475569'];
+  S.crsMaterials.push({ code: c, name: c, color: pal[S.crsMaterials.length % pal.length] }); save(); render();
+}
+function delCrs(i){ const m = S.crsMaterials[i]; if (S.lots.some(l => l.commodity === m.code && l.status !== 'collected')) return toast(`${m.code} has open lots`); if (!confirm(`Remove ${m.code}?`)) return; S.crsMaterials.splice(i, 1); save(); render(); }
+
+/* Day Sheet panel: sold lots still waiting for transport */
+function lotsAwaitingPanel(){
+  const list = S.lots.filter(l => l.status === 'sold');
+  if (!list.length) return '';
+  const tot = {}; list.forEach(l => { const t = tot[l.commodity] ||= { bales: 0, kg: 0, n: 0 }; t.bales += l.bales || 0; t.kg += l.weightKg || 0; t.n++; });
+  return `<div class="panel lot-sold">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px">
+      <h2 style="margin:0">CRS lots sold <span class="pill warn">awaiting transport</span></h2>
+      <button class="noprint" onclick="document.querySelector('#nav [data-v=lots]').click()">Go to CRS Lots</button>
+    </div>
+    <div class="row" style="margin-bottom:10px">${Object.entries(tot).map(([c, t]) => `<span class="tag" style="font-size:14px"><span class="chip" style="--mc:${esc(crsMat(c).color)}">${esc(c)}</span> <b>${t.bales} bales</b> · ${kg(t.kg)}${t.n > 1 ? ` · ${t.n} lots` : ''}</span>`).join('')}</div>
+    <div class="tbl-wrap"><table>
+      <tr><th>Lot</th><th>Commodity</th><th class="n">Bales</th><th class="n">Weight</th><th>Sold</th><th class="noprint"></th></tr>
+      ${list.map(l => `<tr><td>${lotNoHTML(l)}</td><td>${lotChip(l)}</td><td class="n"><b>${l.bales ?? '—'}</b></td><td class="n">${l.weightKg != null ? kg(l.weightKg) : '—'}</td>
+        <td>${fmtDay(l.soldOn)}${l.buyer ? ` · ${esc(l.buyer)}` : ''} <span class="pill warn">awaiting transport</span></td>
+        <td class="noprint"><button class="small primary" onclick="openTransport('${l.id}')">Confirm transport</button></td></tr>`).join('')}
+    </table></div></div>`;
+}
 
 /* =========================================================
    CONTAINERS & TRUCKS
@@ -1645,6 +1871,7 @@ function toDocs(st){
   out.settings.set('companies', { names: st.companies });
   out.settings.set('truckConfigs', { list: st.truckConfigs });
   out.settings.set('forms', { byLocation: st.forms || {} });
+  out.settings.set('crs', { lots: st.lots || [], materials: st.crsMaterials || [] });
   (st.loads||[]).forEach(l => out.loads.set(l.id, l));
   return out;
 }
@@ -1664,6 +1891,8 @@ function fromRemote(){
   s.companies = sdoc('companies')?.names || [];
   const cfgs = sdoc('truckConfigs')?.list; if (cfgs && cfgs.length) s.truckConfigs = cfgs;
   s.loads = vals('loads');
+  const crs = sdoc('crs');
+  if (crs){ s.lots = crs.lots || []; if (crs.materials?.length) s.crsMaterials = crs.materials; }
   const fd = sdoc('forms') || {};
   s.forms = Object.assign({}, fd.byLocation || {}, fd.genuine ? { genuine: fd.genuine } : {});
   migrate(s);
