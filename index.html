@@ -66,6 +66,11 @@
   .tgt-row input{width:70px;padding:4px 6px;font-weight:700;text-align:center}
   .tgt-row a{color:inherit}
   .warn{color:var(--warn)}
+  button.clr{color:var(--muted);padding:3px 8px;line-height:1}
+  button.clr:hover{color:var(--bad);border-color:var(--bad)}
+  .clear-opts{display:flex;flex-direction:column;gap:8px}
+  .clear-opts button{text-align:left;padding:10px 12px}
+  .clear-opts button small{display:block;color:var(--muted);font-weight:400;margin-top:2px}
   .booked{display:flex;align-items:center;gap:8px;background:#e8f1fb;border:1px solid #a9c8ea;color:#1d4f86;border-radius:8px;padding:6px 10px;font-size:13px}
   .booked b{font-family:ui-monospace,Consolas,monospace;font-size:14px;white-space:nowrap}
   .booked span{white-space:nowrap}
@@ -422,7 +427,10 @@ function bayCard(b){
     <div class="bay" style="--mc:${esc(m.color)}">
       <div class="bay-head">
         <span class="bay-no">Bay ${b.n}</span>
+        <span style="display:flex;gap:6px;align-items:center">
+        <button class="small clr" onclick="openClear(${b.n})" title="Clear this bay">✕</button>
         <select onchange="setMat(${b.n},this.value)" title="Material">${S.materials.map(x=>`<option value="${esc(x.code)}" ${x.code===b.material?'selected':''}>${esc(x.code)}</option>`).join('')}</select>
+        </span>
       </div>
       <div><div class="cid">${esc(c.id)}</div><div class="muted">${tare!=null ? `Tare ${kg(tare)}${tareSrc(c)}` : '<span class="neg">Tare unknown — set it in Containers</span>'}${b.startedAt?` · loading since ${fmtDate(b.startedAt)}`:''}</div></div>
       <div class="bales">
@@ -599,6 +607,29 @@ function fallbackCopy(t, done){
 }
 
 function bay(n){ return S.bays.find(b => b.n === +n); }
+
+/* ---------- clear a bay ---------- */
+function openClear(n){
+  const b = bay(n), c = cont(b.containerId);
+  openDlg(`Clear Bay ${n}`, `
+    <p><b>${esc(c.id)}</b> · ${esc(b.material)} · ${b.bales} bales${b.booking ? ` · booked ${esc(b.booking.orderNo||'')}` : ''}${b.visit ? ' · truck on site' : ''}</p>
+    <p class="muted">Use this to fix mistakes. Nothing here is recorded as a load going out — use <b>Truck swap</b> for that.</p>
+    <div class="clear-opts">
+      <button onclick="doClear(${n},'bales')"><b>Reset bales to 0</b><small>Keeps the container in the bay. Also clears the booking and any saved weigh-in.</small></button>
+      <button onclick="doClear(${n},'remove')"><b>Take the container out of the bay</b><small>Bay becomes empty. ${esc(c.id)} stays in the container register.</small></button>
+      <button class="danger" onclick="doClear(${n},'delete')"><b>Remove and delete ${esc(c.id)}</b><small>Bay becomes empty and the container is deleted from the register. Past loads in History are kept.</small></button>
+    </div>`,
+    `<button class="primary" onclick="closeDlg()">Cancel</button>`);
+}
+function doClear(n, how){
+  const b = bay(n), id = b.containerId;
+  if (how === 'delete' && !confirm(`Delete ${id} completely?`)) return;
+  b.bales = 0; b.startedAt = null; b.log = []; b.booking = null; b.visit = null; b.target = null;
+  if (how !== 'bales') b.containerId = null;
+  if (how === 'delete') S.containers = S.containers.filter(c => c.id !== id);
+  save(); closeDlg(); render();
+  toast(how === 'bales' ? `Bay ${n} reset to 0 bales` : `Bay ${n} cleared`);
+}
 function adj(n, d){
   const b = bay(n);
   const nb = Math.max(0, (b.bales||0) + d);
@@ -907,7 +938,7 @@ function renderContainers(){
           <td class="n">${tareOf(c)!=null ? `${kg(tareOf(c))}<div class="muted">${c.tare!=null ? 'own tare' : 'prefix ' + esc(prefixFor(c.id).prefix)}</div>` : '<span class="neg">unknown</span>'}</td>
           <td>${esc(where(c))}</td>
           <td><input class="wide" value="${esc(c.notes||'')}" onchange="setNotes('${esc(c.id)}',this.value)"></td>
-          <td>${bayOf(c.id) ? '' : `<button class="small danger" onclick="delContainer('${esc(c.id)}')">Delete</button>`}</td>
+          <td><button class="small danger" onclick="delContainer('${esc(c.id)}')">Delete</button></td>
         </tr>`).join('') : `<tr><td colspan="6" class="muted">No containers yet — add them here or straight from a bay.</td></tr>`}
       </table></div>
     </div>
@@ -957,7 +988,12 @@ function delPrefix(pre){
   S.prefixes = S.prefixes.filter(p => p.prefix !== pre); save(); render();
 }
 function setNotes(id, v){ cont(id).notes = v.trim(); save(); }
-function delContainer(id){ if (!confirm(`Delete ${id} from the register? History is kept.`)) return; S.containers = S.containers.filter(c => c.id!==id); save(); render(); }
+function delContainer(id){
+  const b = bayOf(id);
+  if (!confirm(`Delete ${id} from the register?${b ? `\n\nIt's in Bay ${b.n} with ${b.bales} bales — the bay will be emptied.` : ''}\n\nPast loads in History are kept.`)) return;
+  if (b){ b.containerId = null; b.bales = 0; b.startedAt = null; b.log = []; b.booking = null; b.visit = null; }
+  S.containers = S.containers.filter(c => c.id !== id); save(); render(); toast(`${id} deleted`);
+}
 function setTruck(r, v){ const t = toKg(v); if (t==null) return toast('Invalid tare'); S.trucks[r] = { tare:t, updated:new Date().toISOString() }; save(); render(); }
 function delTruck(r){ delete S.trucks[r]; save(); render(); }
 
@@ -1061,7 +1097,7 @@ function renderHistory(){
           <td class="n">${kg(x.weighIn)}</td><td class="n">${kg(x.actualOut)}</td>
           <td class="n">${c.actualNet!=null ? `<b>${kg(c.actualNet)}</b>` : '<span class="warn">needs 2nd weigh</span>'}</td><td class="n">${c.perBale!=null?bt(c.perBale):'—'}</td>
           <td class="n ${c.actualNet==null?'':Math.abs(c.actualNet-x.estNet)>1000?'neg':'pos'}">${c.actualNet!=null?signed(c.actualNet-x.estNet):'—'}</td>
-          <td><button class="small" onclick="editHist('${x.id}')">Edit</button></td>
+          <td style="display:flex;gap:4px"><button class="small" onclick="editHist('${x.id}')">Edit</button><button class="small danger" onclick="delHistRow('${x.id}')" title="Delete this load">✕</button></td>
         </tr>`; }).join('') : `<tr><td colspan="15" class="muted">No loads dispatched yet. Use <b>Truck swap</b> on a bay.</td></tr>`}
       </table></div>
     </div>`;
@@ -1094,6 +1130,11 @@ function saveHist(id){
   x.inTare = toKg($('#eh-intare').value) ?? 0;
   x.outTare = toKg($('#eh-outtare').value) ?? x.outTare;
   save(); closeDlg(); render(); toast('Load updated');
+}
+function delHistRow(id){
+  const x = S.history.find(h => h.id === id);
+  if (!confirm(`Delete this load?\n\n${x.outId} · ${x.material} · ${x.bales} bales · ${fmtDate(x.date)}`)) return;
+  S.history = S.history.filter(h => h.id !== id); save(); render(); toast('Load deleted');
 }
 function delHist(id){ if (!confirm('Delete this load from history?')) return; S.history = S.history.filter(h => h.id!==id); save(); closeDlg(); render(); }
 function exportCSV(){
