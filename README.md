@@ -14,7 +14,7 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 | Tab | Purpose |
 |---|---|
 | **Yard** | Six bays. Each shows its container number, tare, material, bale count (−/+1/+5 or type it in), estimated load and gross. |
-| **Book** | Asks whether the container is already booked. If **No**: works out the next Linfox order number for that material, copies it, and opens the [Linfox Customer Portal](https://portal.linfox.com/). Click **Mark as booked** once it's submitted. If **Yes**: record the order number used. The bay shows the booking until the truck swap, and the order number goes into History. |
+| **Book** | Asks whether the container is already booked. If **No**: opens the [Linfox Customer Portal](https://portal.linfox.com/) and shows a **booking sheet** laid out like the Linfox form: connote number, customer reference, container number, pickup details, delivery and freight details. Each field has its own **Copy** button, and **Copy all** copies the lot. Click **Mark as booked** once it's submitted. If **Yes**: record the order number used. The bay shows the booking until the truck swap, and the order number goes into History. |
 | **Truck swap** | Records the 1st weigh (truck in) and 2nd weigh (truck out, loaded) and works out the net weight of material. The empty container takes over the bay. |
 | **Containers & Trucks** | **Tare by prefix** list (e.g. `AFDB → 4.60 t`), the container register, and the trucks the app has learned. |
 | **Materials** | OCC, MXP, ALI, HDPE C, Steel, each with an average tonnes per bale and a **target bales** default. You can add more. |
@@ -39,7 +39,15 @@ Each material has its own order number sequence. You can edit them on the **Mate
 | ALI | `CRCMRF-MALU###` | CRCMRF-MALU001 |
 | Steel | not set yet | |
 
-The next booking uses *last used + 1*. If you type a number that's further along the sequence, the sequence jumps forward to match.
+The next booking uses *last used + 1*.
+
+**Booking sheet wording** (example: 48 bales of aluminium in AFDB4130117):
+- Customer reference: `48 x MRF Aluminium Bales - AFDB 413 011 7`
+- Pickup instructions: `48 x MRF Aluminium Bales - 40ft empty required for exchange, AFDB 413 011 7`
+- Product description: `48 x MRF Aluminium Bales`. Product type is 12.2M/40" Container General, quantity 1, weight 18000 kg (Linfox minimum charge).
+- Delivery goes to **Genuine Recycling Group** with no instructions, except **Mixed Paper**, which goes to **Visy** with *Booking required, Driver must quote - VWI 18811638*.
+
+You can change all of these on the Materials tab: name on booking, delivery location and instructions for each material, plus the booking details that are the same every time (email, phone, depot and so on). If you type a number that's further along the sequence, the sequence jumps forward to match.
 
 ## Tare by prefix
 

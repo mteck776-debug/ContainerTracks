@@ -69,6 +69,12 @@
   .actions button{white-space:nowrap;padding:8px 7px;font-size:14px;min-width:0}
   button.book{border-color:#2f6db5;color:#2f6db5;font-weight:600}
   button.book.done{background:#e8f1fb}
+  table.sheet{width:100%;border:1px solid var(--line);border-radius:10px;border-collapse:separate;border-spacing:0;overflow:hidden}
+  table.sheet td{white-space:normal;padding:6px 10px;vertical-align:middle}
+  table.sheet td.lbl{color:var(--muted);width:190px;font-size:13px}
+  table.sheet td.val{font-weight:600;word-break:break-word}
+  table.sheet td:last-child{width:60px;text-align:right}
+  table.sheet tr.sec td{background:#fff200;color:#111;font-weight:700;text-align:center;font-size:13px;padding:4px}
   .orderno{font:800 28px ui-monospace,Consolas,monospace;letter-spacing:1px;text-align:center;padding:14px;background:#f6f8fa;border:2px dashed #a9c8ea;border-radius:10px;margin:10px 0}
   .figs{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:14px;margin:0}
   .figs dt{color:var(--muted)} .figs dd{margin:0;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
@@ -203,9 +209,30 @@ const ORDER_DEFAULTS = {
   'ALI':    { orderPrefix:'CRCMRF-MALU', orderDigits:3, orderLast:1 },
   'STEEL':  { orderPrefix:'',            orderDigits:3, orderLast:0 },
 };
+/* where each material is delivered — everything goes to Genuine Recycling except mixed paper (Visy) */
+const GRG = 'GENUINE RECYCLING GROUP';
+const DELIVERY_DEFAULTS = {
+  'MXP': { deliveryTo:'VISY', deliveryInstr:'Booking required, Driver must quote - VWI 18811638' },
+};
+/* fixed details that go on every Linfox booking (editable on the Materials tab) */
+const BOOKING_DEFAULTS = {
+  serviceType: 'Door to Door',
+  depot: 'CAIRNS',
+  pickupLocation: 'CAIRNS REGIONAL COUNCIL',
+  email: 'n.hoggan@cairns.qld.gov.au',
+  phone: '0447934750',
+  instrSuffix: '40ft empty required for exchange',
+  product: '12.2M/40" Container General',
+  quantity: 1,
+  weightKg: 18000,
+};
 /* fill in order-number settings on materials saved before booking existed */
 function migrate(st){
-  st.materials.forEach(m => { if (m.orderPrefix === undefined) Object.assign(m, ORDER_DEFAULTS[m.code] || { orderPrefix:'', orderDigits:3, orderLast:0 }); });
+  st.materials.forEach(m => {
+    if (m.orderPrefix === undefined) Object.assign(m, ORDER_DEFAULTS[m.code] || { orderPrefix:'', orderDigits:3, orderLast:0 });
+    if (m.deliveryTo === undefined) Object.assign(m, DELIVERY_DEFAULTS[m.code] || { deliveryTo:GRG, deliveryInstr:'' });
+  });
+  st.settings = Object.assign({}, BOOKING_DEFAULTS, st.settings || {});
   return st;
 }
 
@@ -426,17 +453,72 @@ function bayCard(b){
 }
 
 /* =========================================================
-   BOOKING (Linfox)
+   BOOKING (Linfox) — booking sheet to copy into the portal
    ========================================================= */
+/* AFDB4130117 → "AFDB 413 011 7" */
+function fmtContNo(id){
+  const m = normId(id).match(/^([A-Z]+)(\d+)(.*)$/);
+  return m ? `${m[1]} ${m[2].replace(/(\d{3})(?=\d)/g, '$1 ')}${m[3] ? ' ' + m[3] : ''}` : normId(id);
+}
+const bookName = m => (m.bookName || m.name || m.code).trim();
+const todayAU = () => new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
+
+/* the fields, in the order they appear on the Linfox "New Booking" form */
+function sheetRows(b, orderNo, bales){
+  const c = cont(b.containerId), m = mat(b.material), st = S.settings;
+  const what = `${bales} x MRF ${bookName(m)} Bales`;
+  return [
+    ['Booking'],
+    ['Connote Number', orderNo],
+    ['Customer Reference', `${what} - ${fmtContNo(c.id)}`],
+    ['Service Type', st.serviceType],
+    ['Depot', st.depot],
+    ['Container No', normId(c.id)],
+    ['Pickup'],
+    ['Location', st.pickupLocation],
+    ['Date', todayAU()],
+    ['Pickup Contact Email', st.email],
+    ['Pickup Contact Number', st.phone],
+    ['Pickup Instructions', `${what} - ${st.instrSuffix}, ${fmtContNo(c.id)}`],
+    ['Delivery'],
+    ['Location', m.deliveryTo || ''],
+    ['Delivery Instructions', m.deliveryInstr || ''],
+    ['Freight details'],
+    ['Product Type', st.product],
+    ['Product Description', what],
+    ['Quantity', String(st.quantity)],
+    ['Weight (kg)', String(st.weightKg)],
+  ];
+}
+function sheetHTML(b, orderNo, bales){
+  return `<table class="sheet">${sheetRows(b, orderNo, bales).map(([l, v]) => v === undefined
+      ? `<tr class="sec"><td colspan="3">${esc(l)}</td></tr>`
+      : `<tr><td class="lbl">${esc(l)}</td><td class="val">${v ? esc(v) : '<span class="muted">(leave blank)</span>'}</td>
+           <td>${v ? `<button class="small" onclick="copyBtn(this)" data-v="${esc(v)}">Copy</button>` : ''}</td></tr>`).join('')}</table>`;
+}
+function sheetText(b, orderNo, bales){
+  return sheetRows(b, orderNo, bales).map(([l, v]) => v === undefined ? `\n${l.toUpperCase()}` : `${l}: ${v}`).join('\n').trim();
+}
+/* re-draw the sheet when the order number or bale count is edited */
+function bkRefresh(n){
+  const b = bay(n);
+  $('#bk-sheet').innerHTML = sheetHTML(b, bkNo(), bkBales(b));
+}
+const bkNo = () => String($('#bk-no')?.value || '').toUpperCase().replace(/\s+/g,'').trim();
+const bkBales = b => { const x = num($('#bk-bales')?.value); return x == null ? b.bales : Math.max(0, Math.round(x)); };
+
 function openBook(n){
   const b = bay(n), c = cont(b.containerId), m = mat(b.material);
   const head = `<p><b>Bay ${n}</b> · ${esc(c.id)} · <span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span> · ${b.bales} bales (${kg(estNet(b))})</p>`;
   if (b.booking){
+    const bl = b.booking.bales ?? b.bales;
+    SHEET = sheetText(b, b.booking.orderNo, bl);
     return openDlg('Booking', `${head}
-      <p>Booked with order number</p><div class="orderno">${esc(b.booking.orderNo || '—')}</div>
-      <p class="muted">Booked ${fmtDate(b.booking.at)}. The booking clears when the truck swap is done.</p>`,
+      <div class="booked" style="margin-bottom:10px">🚚 Booked <b>${esc(b.booking.orderNo || '—')}</b><span class="muted" style="margin-left:auto">${fmtDate(b.booking.at)}</span></div>
+      ${sheetHTML(b, b.booking.orderNo, bl)}
+      <p class="muted">The booking clears when the truck swap is done.</p>`,
       `<button class="danger" onclick="cancelBook(${n})" style="margin-right:auto">Remove booking</button>
-       <button onclick="copyText('${esc(b.booking.orderNo||'')}')">Copy number</button>
+       <button onclick="copyText(SHEET)">Copy all</button>
        <button onclick="window.open(LINFOX_URL,'_blank','noopener')">Open Linfox portal</button>
        <button class="primary" onclick="closeDlg()">Close</button>`);
   }
@@ -446,19 +528,24 @@ function openBook(n){
      <button onclick="bookAlready(${n})">Yes, already booked</button>
      <button class="primary" onclick="bookNow(${n})">No, book it now</button>`);
 }
-/* "No": work out the next order number, copy it, open the portal */
+let SHEET = '';
+/* "No": open the portal and show the booking sheet to copy from */
 function bookNow(n){
   const b = bay(n), m = mat(b.material), no = nextOrderNo(m);
   window.open(LINFOX_URL, '_blank', 'noopener');
   if (no) copyText(no, true);
   openDlg('Book with Linfox', `
-    <p>The Linfox portal has opened in a new tab. Use this <b>order number</b>${no ? ' (already copied, just paste it)' : ''}:</p>
-    <input id="bk-no" class="orderno" style="width:100%" value="${esc(no)}" placeholder="enter order number">
-    ${no ? `<p class="muted">Next in the ${esc(m.code)} sequence (last used ${esc(m.orderPrefix + String(m.orderLast||0).padStart(m.orderDigits||3,'0'))}). You can change it if needed.</p>`
-         : `<div class="note">No order number sequence is set for ${esc(m.code)} yet. Type the number you used, or set the sequence on the Materials tab.</div>`}
-    <p>Once you've submitted the booking in the portal, click <b>Mark as booked</b>.</p>`,
+    <p class="muted" style="margin-top:0">The Linfox portal has opened in a new tab. Copy each field across${no ? ' (the connote number is already copied)' : ''}.</p>
+    <div class="row">
+      <div style="flex:1"><label>Connote / order number</label><input id="bk-no" value="${esc(no)}" placeholder="enter order number" oninput="bkRefresh(${n})" style="font:700 18px ui-monospace,Consolas,monospace"></div>
+      <div><label>Bales</label><input id="bk-bales" type="number" min="0" value="${b.bales}" oninput="bkRefresh(${n})" style="width:90px;font-size:18px;font-weight:700"></div>
+    </div>
+    ${no ? `<p class="muted" style="margin:4px 0 10px">Next in the ${esc(m.code)} sequence (last used ${esc(m.orderPrefix + String(m.orderLast||0).padStart(m.orderDigits||3,'0'))}).</p>`
+         : `<div class="note">No order number sequence is set for ${esc(m.code)} yet. Type the number to use, or set the sequence on the Materials tab.</div>`}
+    <div id="bk-sheet">${sheetHTML(b, no, b.bales)}</div>
+    <p>After you've submitted the booking in the portal, click <b>Mark as booked</b>.</p>`,
     `<button onclick="closeDlg()" style="margin-right:auto">Cancel</button>
-     <button onclick="copyText($('#bk-no').value)">Copy number</button>
+     <button onclick="copyText(sheetText(bay(${n}), bkNo(), bkBales(bay(${n}))))">Copy all</button>
      <button onclick="window.open(LINFOX_URL,'_blank','noopener')">Open portal again</button>
      <button class="primary" onclick="markBooked(${n})">Mark as booked</button>`);
 }
@@ -473,16 +560,19 @@ function bookAlready(n){
      <button class="primary" onclick="markBooked(${n})">Save</button>`);
 }
 function markBooked(n){
-  const b = bay(n), m = mat(b.material);
-  const no = String($('#bk-no').value || '').toUpperCase().replace(/\s+/g,'').trim();
+  const b = bay(n), m = mat(b.material), no = bkNo();
   const seq = orderSeq(m, no);
   if (seq != null && seq > (m.orderLast||0)) m.orderLast = seq;      // advance the sequence
-  b.booking = { orderNo: no, at: new Date().toISOString() };
+  b.booking = { orderNo: no, at: new Date().toISOString(), bales: bkBales(b) };
   save(); closeDlg(); render(); toast(`Bay ${n} booked${no ? ' · ' + no : ''}`);
 }
 function cancelBook(n){
   if (!confirm('Remove this booking? (The order number sequence is not wound back.)')) return;
   bay(n).booking = null; save(); closeDlg(); render();
+}
+function copyBtn(btn){
+  copyText(btn.dataset.v, true);
+  btn.textContent = 'Copied ✓'; btn.style.background = '#e9f7ef'; btn.style.borderColor = '#9fd8b6';
 }
 function copyText(t, quiet){
   if (!t) return;
@@ -879,17 +969,27 @@ function renderMaterials(){
           <td>${S.bays.some(b => b.material===m.code) || S.materials.length<2 ? '' : `<button class="small danger" onclick="delMat(${i})">Delete</button>`}</td>
         </tr>`; }).join('')}
       </table></div>
-      <h3 style="margin-top:22px">Linfox order numbers</h3>
-      <p class="muted">Each booking uses the next number in the material's sequence, e.g. <b>CRCMRF-OCC0110</b>. Set <b>Last used</b> to the most recent number booked, and the Book button carries on from there.</p>
+      <h3 style="margin-top:22px">Linfox bookings</h3>
+      <p class="muted">Each booking uses the next connote number in the material's sequence, e.g. <b>CRCMRF-OCC0110</b>. Set <b>Last used</b> to the most recent number booked, and the Book button carries on from there.
+      <b>Name on booking</b> is used in "48 x MRF <i>Aluminium</i> Bales".</p>
       <div class="tbl-wrap"><table>
-        <tr><th>Material</th><th>Order prefix</th><th class="n">Digits</th><th class="n">Last used</th><th>Next booking gets</th></tr>
+        <tr><th>Material</th><th>Order prefix</th><th class="n">Digits</th><th class="n">Last used</th><th>Next booking gets</th><th>Name on booking</th><th>Delivery location</th><th>Delivery instructions</th></tr>
         ${S.materials.map((m,i) => `<tr>
           <td><span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span></td>
           <td><input class="wide" value="${esc(m.orderPrefix||'')}" placeholder="e.g. CRCMRF-STL" onchange="setMatField(${i},'orderPrefix',this.value)" style="font-family:ui-monospace,Consolas,monospace"></td>
           <td class="n"><input type="number" min="1" max="8" value="${m.orderDigits||3}" onchange="setMatField(${i},'orderDigits',this.value)" style="width:70px"></td>
           <td class="n"><input type="number" min="0" value="${m.orderLast||0}" onchange="setMatField(${i},'orderLast',this.value)" style="width:90px"></td>
           <td>${m.orderPrefix ? `<b style="font-family:ui-monospace,Consolas,monospace">${esc(nextOrderNo(m))}</b>` : '<span class="muted">set a prefix</span>'}</td>
+          <td><input value="${esc(bookName(m))}" onchange="setMatField(${i},'bookName',this.value)" style="width:130px"></td>
+          <td><input value="${esc(m.deliveryTo||'')}" onchange="setMatField(${i},'deliveryTo',this.value)" style="width:200px"></td>
+          <td><input value="${esc(m.deliveryInstr||'')}" placeholder="none" onchange="setMatField(${i},'deliveryInstr',this.value)" style="width:300px"></td>
         </tr>`).join('')}
+      </table></div>
+      <h3 style="margin-top:22px">Booking details (same on every booking)</h3>
+      <div class="tbl-wrap"><table>
+        ${[['serviceType','Service type'],['depot','Depot'],['pickupLocation','Pickup location'],['email','Pickup contact email'],['phone','Pickup contact number'],
+           ['instrSuffix','Pickup instructions wording'],['product','Product type'],['quantity','Quantity'],['weightKg','Weight (kg) — Linfox minimum charge']]
+          .map(([k,l]) => `<tr><td style="width:260px">${l}</td><td><input class="wide" style="width:340px" value="${esc(S.settings[k])}" onchange="setSetting('${k}',this.value)"></td></tr>`).join('')}
       </table></div>
       <h3 style="margin-top:18px">Add a material</h3>
       <div class="row">
@@ -908,6 +1008,11 @@ function setMatField(i, f, v){
   else if (f==='orderPrefix') m[f] = v.toUpperCase().replace(/\s+/g,'').trim();
   else m[f] = v;
   save(); render(); toast(`${m.code} updated`);
+}
+function setSetting(k, v){
+  v = String(v).trim();
+  S.settings[k] = (k==='quantity' || k==='weightKg') ? (num(v) ?? BOOKING_DEFAULTS[k]) : v;
+  save(); toast('Booking details updated');
 }
 function useLearned(i){ const m = S.materials[i], l = learned(m.code); m.baleKg = Math.round(l.avg); save(); render(); toast(`${m.code} now ${bt(m.baleKg)} per bale`); }
 function addMat(){
@@ -1038,7 +1143,7 @@ function closeDlg(){ $('#dlg').close(); }
 /* =========================================================
    FIREBASE SYNC
    ========================================================= */
-const COLS = ['bays','containers','prefixes','materials','trucks','history'];
+const COLS = ['bays','containers','prefixes','materials','trucks','history','settings'];
 let CLOUD = null;          // set once firebase-config.js + SDK are loaded
 let pendingRender = false;
 
@@ -1055,6 +1160,7 @@ function toDocs(st){
   st.materials.forEach((m, i) => out.materials.set(enc(m.code), { ...m, _i: i }));
   Object.entries(st.trucks).forEach(([r, t]) => out.trucks.set(enc(r), { rego: r, ...t }));
   st.history.forEach(h => out.history.set(h.id, h));
+  out.settings.set('booking', st.settings);
   return out;
 }
 function fromRemote(){
@@ -1068,6 +1174,7 @@ function fromRemote(){
   migrate(s);
   s.trucks = {}; vals('trucks').forEach(({ rego, ...t }) => s.trucks[rego] = t);
   s.history = vals('history').sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  s.settings = Object.assign({}, BOOKING_DEFAULTS, vals('settings')[0] || {});
   return s;
 }
 
