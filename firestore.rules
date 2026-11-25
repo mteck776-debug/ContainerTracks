@@ -8,11 +8,11 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /{collection}/{docId} {
       allow read: if request.auth != null
-        && collection in ['bays', 'containers', 'prefixes', 'materials', 'trucks', 'history', 'settings'];
+        && collection in ['bays', 'containers', 'prefixes', 'materials', 'trucks', 'history', 'settings', 'loads'];
       allow delete: if request.auth != null
-        && collection in ['containers', 'prefixes', 'materials', 'trucks', 'history', 'settings'];
+        && collection in ['containers', 'prefixes', 'materials', 'trucks', 'history', 'settings', 'loads'];
       allow create, update: if request.auth != null
-        && collection in ['bays', 'containers', 'prefixes', 'materials', 'trucks', 'history', 'settings']
+        && collection in ['bays', 'containers', 'prefixes', 'materials', 'trucks', 'history', 'settings', 'loads']
         && request.resource.data.size() < 40;
     }
   }

@@ -136,7 +136,23 @@
   #login .err{color:var(--bad);font-size:13px;min-height:18px;margin-top:8px}
   #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1c2530;color:#fff;padding:10px 16px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
   #toast.show{opacity:1}
-  @media print{header,.actions,nav{display:none}}
+  .addload{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:#f6f8fa;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0 14px}
+  .addload > div{display:flex;flex-direction:column}
+  .addload label{margin-top:0}
+  table.day td{vertical-align:middle;padding:6px 5px}
+  table.day th{padding:8px 5px}
+  .daynav{display:flex;gap:6px;align-items:center}
+  table.day select{padding:5px 6px}
+  .big-n{font-size:18px}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;background:#e7eaee;color:#4a5563}
+  .pill.in{background:#fff3e0;color:#8a4b08} .pill.done{background:#e9f7ef;color:var(--good)}
+  .tag{display:inline-flex;gap:6px;align-items:center;background:#eef1f4;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:13px}
+  .tag a{color:var(--muted);text-decoration:none}
+  @media print{
+    header,.actions,nav,.noprint,#toast{display:none !important}
+    body{background:#fff} main{padding:0} .panel{box-shadow:none;padding:0}
+    input,select{border:0;padding:0;background:transparent;-webkit-appearance:none;appearance:none}
+  }
 </style>
 </head>
 <body>
@@ -145,6 +161,7 @@
     <div class="brand"><img src="favicon.svg" alt="" width="34" height="34">ContainerTracks</div>
     <nav id="nav">
       <button data-v="yard" class="on">Yard</button>
+      <button data-v="daysheet">Day Sheet</button>
       <button data-v="containers">Containers &amp; Trucks</button>
       <button data-v="materials">Materials</button>
       <button data-v="history">History</button>
@@ -205,7 +222,10 @@ const defaults = () => migrate({
   containers: [],          // {id, tare|null (null = use prefix tare), notes, outSince}
   bays: Array.from({length:BAY_COUNT}, (_,i) => newBay(i+1)),
   trucks: {},              // rego -> {tare, updated}
-  history: []              // dispatched loads
+  history: [],             // dispatched loads
+  loads: [],               // day sheet: trucks loaded with bales (and planned ones)
+  companies: [],           // remembered company names
+  truckConfigs: null       // filled by migrate()
 });
 
 /* Linfox booking order numbers: prefix + zero-padded running number.
@@ -242,6 +262,12 @@ function migrate(st){
     if (m.deliveryTo === undefined) Object.assign(m, DELIVERY_DEFAULTS[m.code] || { deliveryTo:GRG, deliveryInstr:'' });
   });
   st.settings = Object.assign({}, BOOKING_DEFAULTS, st.settings || {});
+  st.loads = st.loads || []; st.companies = st.companies || [];
+  if (!st.truckConfigs || !st.truckConfigs.length) st.truckConfigs = [
+    { id:'b9', name:'9 axle B-double', maxGross:62500, maxBales:0 },
+    { id:'b8', name:'8 axle B-double', maxGross:59000, maxBales:0 },
+    { id:'s6', name:'6 axle semi',     maxGross:42500, maxBales:0 },
+  ];
   return st;
 }
 
@@ -368,6 +394,10 @@ function learned(code){
     const c = hCalc(h);
     if (c.actualNet!=null && h.bales>0){ net += c.actualNet; bales += h.bales; loads++; }
   });
+  (S.loads||[]).forEach(l => {
+    if (l.material !== code || l.weighOut == null || l.tare == null || !(l.bales > 0)) return;
+    net += l.weighOut - l.tare; bales += l.bales; loads++;
+  });
   return loads ? { avg: net/bales, loads } : null;
 }
 
@@ -380,7 +410,7 @@ $('#nav').addEventListener('click', e => {
   render();
 });
 function render(){
-  ({ yard:renderYard, containers:renderContainers, materials:renderMaterials, history:renderHistory, backup:renderBackup })[view]();
+  ({ yard:renderYard, daysheet:renderDaySheet, containers:renderContainers, materials:renderMaterials, history:renderHistory, backup:renderBackup })[view]();
 }
 
 /* =========================================================
@@ -894,6 +924,189 @@ function doSwap(){
 }
 
 /* =========================================================
+   DAY SHEET — B-doubles etc. loaded with bales
+   Max payload = configuration's max gross − truck tare
+   Max bales   = max payload ÷ avg bale weight (capped by the config's bale space, if set)
+   ========================================================= */
+const ymd = d => { const x = d ? new Date(d) : new Date(); return x.getFullYear() + '-' + String(x.getMonth()+1).padStart(2,'0') + '-' + String(x.getDate()).padStart(2,'0'); };
+const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return ymd(d); };
+const fmtDay = s => new Date(s + 'T12:00:00').toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+const cfgOf = id => S.truckConfigs.find(c => c.id === id) || S.truckConfigs[0];
+let DAY = ymd();
+
+function loadCalc(l){
+  const m = mat(l.material), cfg = cfgOf(l.config);
+  const payload = (cfg && l.tare != null) ? cfg.maxGross - l.tare : null;
+  let maxBales = (payload != null && m.baleKg) ? Math.floor(payload / m.baleKg) : null;
+  if (maxBales != null && cfg.maxBales) maxBales = Math.min(maxBales, cfg.maxBales);
+  if (maxBales != null) maxBales = Math.max(0, maxBales);
+  const estGross = (l.tare != null && l.bales) ? l.tare + l.bales * m.baleKg : null;
+  const net = (l.weighOut != null && l.tare != null) ? l.weighOut - l.tare : null;
+  const status = l.weighOut != null ? 'done' : l.tare != null ? 'in' : 'planned';
+  return { m, cfg, payload, maxBales, estGross, net, perBale: net != null && l.bales ? net / l.bales : null, status };
+}
+function rememberCompany(name){
+  name = String(name||'').trim(); if (!name) return;
+  if (!S.companies.some(c => c.toLowerCase() === name.toLowerCase())) S.companies.push(name), S.companies.sort((a,b) => a.localeCompare(b));
+}
+
+function renderDaySheet(){
+  const day = S.loads.filter(l => l.date === DAY).sort((a,b) => (a.order||0) - (b.order||0));
+  const today = ymd();
+  const upcoming = S.loads.filter(l => l.date > today).sort((a,b) => a.date.localeCompare(b.date));
+  const cfgOpts = sel => S.truckConfigs.map(c => `<option value="${esc(c.id)}" ${c.id===sel?'selected':''}>${esc(c.name)} (${tn(c.maxGross)})</option>`).join('');
+  const matOpts = sel => S.materials.map(m => `<option value="${esc(m.code)}" ${m.code===sel?'selected':''}>${esc(m.code)}</option>`).join('');
+  const totNet = day.reduce((s,l) => s + (loadCalc(l).net || 0), 0);
+  const pill = st => ({ planned:'<span class="pill">Expected</span>', in:'<span class="pill in">On site</span>', done:'<span class="pill done">Done ✓</span>' })[st];
+
+  $('#main').innerHTML = `
+    <datalist id="dl-companies">${S.companies.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    <datalist id="dl-regos">${Object.keys(S.trucks).sort().map(r => `<option value="${esc(r)}">`).join('')}</datalist>
+    <div class="panel">
+      <div class="row noprint" style="justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span class="daynav">
+          <button onclick="DAY=addDays(DAY,-1);render()">‹</button>
+          <input type="date" value="${DAY}" onchange="DAY=this.value||ymd();render()">
+          <button onclick="DAY=addDays(DAY,1);render()">›</button>
+          ${DAY !== today ? `<button onclick="DAY=ymd();render()">Today</button>` : ''}
+        </span>
+        <button onclick="window.print()">Print day sheet</button>
+      </div>
+      <h2>Day sheet — ${fmtDay(DAY)}${DAY===today ? ' <span class="muted">(today)</span>' : DAY > today ? ' <span class="muted">(planned)</span>' : ''}</h2>
+
+      <div class="addload noprint">
+        <div><label>Company</label><input id="dl-co" list="dl-companies" placeholder="e.g. Visy" style="width:180px"></div>
+        <div><label>Commodity</label><select id="dl-mat">${matOpts('OCC')}</select></div>
+        <div><label>Truck</label><select id="dl-cfg">${cfgOpts(S.truckConfigs[0]?.id)}</select></div>
+        <div><label>Rego</label><input id="dl-rego" list="dl-regos" placeholder="if here" style="width:110px" oninput="dlRegoFill()"></div>
+        <div><label>Tare (t)</label><input id="dl-tare" type="number" step="any" placeholder="if here" style="width:90px"></div>
+        <div><label>Notes</label><input id="dl-notes" style="width:160px"></div>
+        <div><label>&nbsp;</label><button class="primary" onclick="addLoad()">Add to ${DAY===today?'today':fmtDay(DAY).replace(/ \\d{4}$/,'')}</button></div>
+      </div>
+
+      <div class="tbl-wrap"><table class="day">
+        <tr><th>#</th><th>Company</th><th>Commodity</th><th>Truck</th><th>Rego</th><th class="n">Tare (t)</th>
+<th class="n">Can carry</th><th class="n">Max bales</th><th class="n">Bales loaded</th><th class="n">Est. gross</th>
+            <th class="n">Weigh-out (t)</th><th class="n">Net</th><th>Status</th><th class="noprint"></th></tr>
+        ${day.length ? day.map((l, i) => { const c = loadCalc(l); const over = c.estGross != null && c.cfg && c.estGross > c.cfg.maxGross; const overOut = l.weighOut != null && c.cfg && l.weighOut > c.cfg.maxGross; return `<tr>
+          <td>${i+1}</td>
+          <td><input value="${esc(l.company)}" list="dl-companies" onchange="setLoad('${l.id}','company',this.value)" style="width:140px"></td>
+          <td><select onchange="setLoad('${l.id}','material',this.value)"><option></option>${matOpts(l.material)}</select></td>
+          <td><select onchange="setLoad('${l.id}','config',this.value)" style="max-width:140px">${S.truckConfigs.map(x => `<option value="${esc(x.id)}" ${x.id===c.cfg?.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></td>
+          <td><input value="${esc(l.rego||'')}" list="dl-regos" onchange="setLoad('${l.id}','rego',this.value)" style="width:85px" placeholder="—"></td>
+          <td class="n"><input type="number" step="any" value="${tv(l.tare)}" onchange="setLoad('${l.id}','tare',this.value)" style="width:68px" placeholder="—"></td>
+          <td class="n"><b>${c.payload != null ? kg(c.payload) : '—'}</b><div class="muted">max ${c.cfg ? kg(c.cfg.maxGross) : '—'}</div></td>
+          <td class="n"><b class="big-n">${c.maxBales ?? '—'}</b>${c.maxBales != null ? `<div class="muted">@ ${bt(c.m.baleKg)}</div>` : ''}</td>
+          <td class="n"><input type="number" min="0" value="${l.bales ?? ''}" onchange="setLoad('${l.id}','bales',this.value)" style="width:60px" placeholder="—"></td>
+          <td class="n ${over?'neg':''}">${c.estGross != null ? kg(c.estGross) + (over ? '<div>over limit</div>' : '') : '—'}</td>
+          <td class="n"><input type="number" step="any" value="${tv(l.weighOut)}" onchange="setLoad('${l.id}','weighOut',this.value)" style="width:72px" placeholder="—" class="${overOut?'neg':''}"></td>
+          <td class="n">${c.net != null ? `<b>${kg(c.net)}</b>${c.perBale ? `<div class="muted">${bt(c.perBale)}/bale</div>` : ''}${overOut ? '<div class="neg">over limit</div>' : ''}` : '—'}</td>
+          <td>${pill(c.status)}${l.notes ? `<div class="muted" style="white-space:normal;max-width:180px">${esc(l.notes)}</div>` : ''}</td>
+          <td class="noprint" style="white-space:nowrap"><button class="small" onclick="editLoad('${l.id}')">More</button> <button class="small danger" onclick="delLoad('${l.id}')" title="Delete">✕</button></td>
+        </tr>`; }).join('') : `<tr><td colspan="14" class="muted">No loads ${DAY < today ? 'were recorded' : 'yet'} for this day.</td></tr>`}
+        ${day.some(l => l.weighOut != null) ? `<tr><td colspan="11" class="n"><b>Total net out</b></td><td class="n"><b>${kg(totNet)}</b></td><td colspan="2"></td></tr>` : ''}
+      </table></div>
+      <p class="muted noprint">Max bales = (max gross − tare) ÷ average bale weight for that commodity. Max gross comes from the truck setup (edit below). Weighed loads feed the learned bale weights on the Materials tab.</p>
+    </div>
+
+    <div class="panel noprint">
+      <h2>Upcoming loads</h2>
+      ${upcoming.length ? `<div class="tbl-wrap"><table>
+        <tr><th>Date</th><th>Company</th><th>Commodity</th><th>Truck</th><th>Notes</th><th></th></tr>
+        ${upcoming.map(l => `<tr>
+          <td><a href="#" onclick="DAY='${l.date}';render();return false"><b>${fmtDay(l.date)}</b></a></td>
+          <td>${esc(l.company)}</td><td>${l.material ? `<span class="chip" style="--mc:${esc(mat(l.material).color)}">${esc(l.material)}</span>` : '—'}</td>
+          <td>${esc(cfgOf(l.config)?.name || '')}</td><td class="muted">${esc(l.notes||'')}</td>
+          <td><button class="small danger" onclick="delLoad('${l.id}')">✕</button></td></tr>`).join('')}
+      </table></div>` : '<p class="muted">Nothing planned yet. Pick a future date above and add loads to it.</p>'}
+    </div>
+
+    <div class="panel noprint">
+      <h2>Truck setups</h2>
+      <p class="muted">Max gross is the legal gross mass for the combination: general mass limits are 62.5 t for a 9 axle B-double, 59.0 t for 8 axle and 42.5 t for a 6 axle semi. Change these if a truck runs under HML or a permit. <b>Max bales</b> (optional) caps it by deck space.</p>
+      <div class="tbl-wrap"><table>
+        <tr><th>Setup</th><th class="n">Max gross (t)</th><th class="n">Max bales (space)</th><th></th></tr>
+        ${S.truckConfigs.map((c,i) => `<tr>
+          <td><input class="wide" value="${esc(c.name)}" onchange="setCfg(${i},'name',this.value)"></td>
+          <td class="n"><input type="number" step="0.1" value="${tv(c.maxGross,1)}" onchange="setCfg(${i},'maxGross',this.value)"></td>
+          <td class="n"><input type="number" min="0" value="${c.maxBales||''}" placeholder="no limit" onchange="setCfg(${i},'maxBales',this.value)"></td>
+          <td>${S.truckConfigs.length > 1 ? `<button class="small danger" onclick="delCfg(${i})">Delete</button>` : ''}</td></tr>`).join('')}
+      </table></div>
+      <div class="row" style="margin-top:10px">
+        <div><label>New setup</label><input id="cf-name" placeholder="e.g. Truck and dog"></div>
+        <div><label>Max gross (t)</label><input id="cf-max" type="number" step="0.1" style="width:110px"></div>
+        <div><label>&nbsp;</label><button onclick="addCfg()">Add setup</button></div>
+      </div>
+    </div>
+
+    <div class="panel noprint">
+      <h2>Companies</h2>
+      <p class="muted">Remembered automatically when you add a load. Remove any you don't need.</p>
+      <div class="row">${S.companies.length ? S.companies.map(c => `<span class="tag">${esc(c)} <a href="#" onclick="delCompany(${JSON.stringify(c).replace(/"/g,'&quot;')});return false">✕</a></span>`).join('') : '<span class="muted">None yet.</span>'}</div>
+      <div class="row" style="margin-top:10px"><input id="co-new" placeholder="Add a company"><button onclick="rememberCompany($('#co-new').value);save();render()">Add</button></div>
+    </div>`;
+}
+
+function dlRegoFill(){
+  const r = normRego($('#dl-rego').value), t = S.trucks[r];
+  if (t){ if (!$('#dl-tare').value) $('#dl-tare').value = tv(t.tare); if (t.config && cfgOf(t.config)) $('#dl-cfg').value = t.config; }
+}
+function addLoad(){
+  const company = $('#dl-co').value.trim();
+  if (!company) return toast('Enter the company');
+  const rego = normRego($('#dl-rego').value), tare = toKg($('#dl-tare').value);
+  const l = { id: uid(), date: DAY, company, material: $('#dl-mat').value, config: $('#dl-cfg').value,
+              rego, tare, bales: null, weighOut: null, notes: $('#dl-notes').value.trim(), order: Date.now() };
+  S.loads.push(l); rememberCompany(company); rememberTruck(l);
+  save(); render(); toast(`${company} added to ${fmtDay(DAY)}`);
+  setTimeout(() => $('#dl-co')?.focus(), 0);
+}
+function rememberTruck(l){ if (l.rego && l.tare != null) S.trucks[l.rego] = { tare: l.tare, updated: new Date().toISOString(), config: l.config }; }
+function setLoad(id, f, v){
+  const l = S.loads.find(x => x.id === id); if (!l) return;
+  if (f === 'tare' || f === 'weighOut') l[f] = String(v).trim() === '' ? null : toKg(v);
+  else if (f === 'bales') l[f] = String(v).trim() === '' ? null : Math.max(0, Math.round(num(v) ?? 0));
+  else if (f === 'rego'){ l.rego = normRego(v); const t = S.trucks[l.rego]; if (t && l.tare == null){ l.tare = t.tare; if (t.config) l.config = t.config; } }
+  else { l[f] = String(v).trim(); if (f === 'company') rememberCompany(l.company); }
+  if (f === 'tare' || f === 'rego' || f === 'config') rememberTruck(l);
+  save(); render();
+}
+function editLoad(id){
+  const l = S.loads.find(x => x.id === id);
+  openDlg(`${l.company} — ${fmtDay(l.date)}`, `
+    <div class="cols">
+      <div><label>Date</label><input id="el-date" type="date" value="${l.date}" style="width:100%"></div>
+      <div><label>Notes</label><input id="el-notes" value="${esc(l.notes||'')}" style="width:100%"></div>
+    </div>
+    <p class="muted">Change the date to move this load to another day.</p>`,
+    `<button onclick="closeDlg()">Cancel</button><button class="primary" onclick="saveLoadMore('${id}')">Save</button>`);
+}
+function saveLoadMore(id){
+  const l = S.loads.find(x => x.id === id);
+  l.date = $('#el-date').value || l.date; l.notes = $('#el-notes').value.trim();
+  save(); closeDlg(); render(); toast('Load updated');
+}
+function delLoad(id){
+  const l = S.loads.find(x => x.id === id);
+  if (!confirm(`Delete ${l.company} (${fmtDay(l.date)})?`)) return;
+  S.loads = S.loads.filter(x => x.id !== id); save(); render();
+}
+function setCfg(i, f, v){
+  const c = S.truckConfigs[i];
+  if (f === 'maxGross'){ const x = toKg(v); if (x == null) return toast('Invalid weight'); c.maxGross = x; }
+  else if (f === 'maxBales') c.maxBales = Math.max(0, Math.round(num(v) ?? 0));
+  else c.name = String(v).trim() || c.name;
+  save(); render();
+}
+function addCfg(){
+  const name = $('#cf-name').value.trim(), mx = toKg($('#cf-max').value);
+  if (!name || mx == null) return toast('Enter a name and max gross');
+  S.truckConfigs.push({ id: uid(), name, maxGross: mx, maxBales: 0 }); save(); render();
+}
+function delCfg(i){ if (!confirm(`Delete ${S.truckConfigs[i].name}?`)) return; S.truckConfigs.splice(i,1); save(); render(); }
+function delCompany(name){ S.companies = S.companies.filter(c => c !== name); save(); render(); }
+
+/* =========================================================
    CONTAINERS & TRUCKS
    ========================================================= */
 function renderContainers(){
@@ -1212,7 +1425,7 @@ function closeDlg(){ $('#dlg').close(); }
 /* =========================================================
    FIREBASE SYNC
    ========================================================= */
-const COLS = ['bays','containers','prefixes','materials','trucks','history','settings'];
+const COLS = ['bays','containers','prefixes','materials','trucks','history','settings','loads'];
 let CLOUD = null;          // set once firebase-config.js + SDK are loaded
 let pendingRender = false;
 
@@ -1230,6 +1443,9 @@ function toDocs(st){
   Object.entries(st.trucks).forEach(([r, t]) => out.trucks.set(enc(r), { rego: r, ...t }));
   st.history.forEach(h => out.history.set(h.id, h));
   out.settings.set('booking', st.settings);
+  out.settings.set('companies', { names: st.companies });
+  out.settings.set('truckConfigs', { list: st.truckConfigs });
+  (st.loads||[]).forEach(l => out.loads.set(l.id, l));
   return out;
 }
 function fromRemote(){
@@ -1243,7 +1459,11 @@ function fromRemote(){
   migrate(s);
   s.trucks = {}; vals('trucks').forEach(({ rego, ...t }) => s.trucks[rego] = t);
   s.history = vals('history').sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  s.settings = Object.assign({}, BOOKING_DEFAULTS, vals('settings')[0] || {});
+  const sdoc = id => { const j = CLOUD.remote.settings.get(id); return j ? JSON.parse(j) : null; };
+  s.settings = Object.assign({}, BOOKING_DEFAULTS, sdoc('booking') || {});
+  s.companies = sdoc('companies')?.names || [];
+  const cfgs = sdoc('truckConfigs')?.list; if (cfgs && cfgs.length) s.truckConfigs = cfgs;
+  s.loads = vals('loads');
   return s;
 }
 

@@ -15,6 +15,7 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 |---|---|
 | **Yard** | Six bays. Each shows its container number, tare, material, bale count (−/+1/+5 or type it in), estimated load and gross. |
 | **Book** | Asks whether the container is already booked. If **No**: opens the [Linfox Customer Portal](https://portal.linfox.com/) and shows a **booking sheet** laid out like the Linfox form: connote number, customer reference, container number, pickup details, delivery and freight details. Each field has its own **Copy** button, and **Copy all** copies the lot. Click **Mark as booked** once it's submitted. If **Yes**: record the order number used. The bay shows the booking until the truck swap, and the order number goes into History. |
+| **Day Sheet** | Trucks (e.g. 9 axle B-doubles) loaded with bales. Add the company, commodity and truck setup. When the truck arrives, add its rego and tare, and the sheet shows how many tonnes and **how many bales** it can take. Add bales loaded and the weigh-out to get the net. You can plan future loads on any date, see them under **Upcoming loads**, and print the sheet. Company names and truck tares are remembered. |
 | **Truck swap** | Records the 1st weigh (truck in) and 2nd weigh (truck out, loaded) and works out the net weight of material. The empty container takes over the bay. |
 | **Containers & Trucks** | **Tare by prefix** list (e.g. `AFDB → 4.60 t`), the container register, and the trucks the app has learned. |
 | **Materials** | OCC, MXP, ALI, HDPE C, Steel, each with an average tonnes per bale and a **target bales** default. You can add more. |
@@ -26,6 +27,17 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 Each material has a default number of bales to aim for per container. You can override it on any bay card by typing into its **Target** box. The **use default** link sets it back to the material's default.
 
 The bay card shows bales / target, a progress bar and how many bales are left to go. The card turns **green** when the target is reached and **amber** when it goes over. The Yard summary counts how many containers are at target, and each dispatched load records its target in History.
+
+## Day sheet: how many bales fit
+
+```
+Can carry  = max gross for the truck setup − truck tare
+Max bales  = can carry ÷ average bale weight for the commodity   (capped by the setup's max bales, if set)
+```
+
+Example: 9 axle B-double, tare 20.5 t → can carry 62.5 − 20.5 = 42.0 t → **93 bales** of OCC at 0.450 t, or 84 of MXP at 0.500 t.
+
+The default max gross figures are the general mass limits: 9 axle B-double 62.5 t, 8 axle 59.0 t, 6 axle semi 42.5 t. Change them under **Truck setups** if a truck runs under HML or a permit. Weighed day-sheet loads also feed the learned bale weights.
 
 ## Linfox order numbers
 
