@@ -35,7 +35,7 @@
   .panel{background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
 
   /* summary */
-  .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+  .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px}
   .stat{background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px 14px}
   .stat b{display:block;font-size:24px;font-variant-numeric:tabular-nums}
   .stat span{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
@@ -62,6 +62,14 @@
   .tgt-row input{width:70px;padding:4px 6px;font-weight:700;text-align:center}
   .tgt-row a{color:inherit}
   .warn{color:var(--warn)}
+  .booked{display:flex;align-items:center;gap:8px;background:#e8f1fb;border:1px solid #a9c8ea;color:#1d4f86;border-radius:8px;padding:6px 10px;font-size:13px}
+  .booked b{font-family:ui-monospace,Consolas,monospace;font-size:14px;white-space:nowrap}
+  .booked span{white-space:nowrap}
+  .actions{display:grid !important;grid-template-columns:1fr auto auto}
+  .actions button{white-space:nowrap;padding:8px 7px;font-size:14px;min-width:0}
+  button.book{border-color:#2f6db5;color:#2f6db5;font-weight:600}
+  button.book.done{background:#e8f1fb}
+  .orderno{font:800 28px ui-monospace,Consolas,monospace;letter-spacing:1px;text-align:center;padding:14px;background:#f6f8fa;border:2px dashed #a9c8ea;border-radius:10px;margin:10px 0}
   .figs{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:14px;margin:0}
   .figs dt{color:var(--muted)} .figs dd{margin:0;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
   .figs .big{font-size:17px}
@@ -170,7 +178,7 @@ const KEY = 'containertracks:v1';
 const BAY_COUNT = 6;
 
 const newBay = n => ({ n, containerId:null, material:'OCC', bales:0, startedAt:null, log:[] });
-const defaults = () => ({
+const defaults = () => migrate({
   materials: [
     { code:'OCC',    name:'Cardboard',    baleKg:450, typical:48, color:'#9a6634' },
     { code:'MXP',    name:'Mixed Paper',  baleKg:500, typical:44, color:'#2f6db5' },
@@ -184,6 +192,22 @@ const defaults = () => ({
   trucks: {},              // rego -> {tare, updated}
   history: []              // dispatched loads
 });
+
+/* Linfox booking order numbers: prefix + zero-padded running number.
+   'last' is the most recent number used; the next booking gets last + 1. */
+const LINFOX_URL = 'https://portal.linfox.com/';
+const ORDER_DEFAULTS = {
+  'OCC':    { orderPrefix:'CRCMRF-OCC',  orderDigits:4, orderLast:109 },
+  'MXP':    { orderPrefix:'CRCMRF-MXP',  orderDigits:4, orderLast:121 },
+  'HDPE C': { orderPrefix:'CRCMRF-HDCO', orderDigits:3, orderLast:1 },
+  'ALI':    { orderPrefix:'CRCMRF-MALU', orderDigits:3, orderLast:1 },
+  'STEEL':  { orderPrefix:'',            orderDigits:3, orderLast:0 },
+};
+/* fill in order-number settings on materials saved before booking existed */
+function migrate(st){
+  st.materials.forEach(m => { if (m.orderPrefix === undefined) Object.assign(m, ORDER_DEFAULTS[m.code] || { orderPrefix:'', orderDigits:3, orderLast:0 }); });
+  return st;
+}
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -206,7 +230,7 @@ let S;
 function load(){
   let d = null;
   try { d = JSON.parse(localStorage.getItem(KEY)); } catch(e) {}
-  S = Object.assign(defaults(), d || {});
+  S = migrate(Object.assign(defaults(), d || {}));
   for (let i = S.bays.length; i < BAY_COUNT; i++) S.bays.push(newBay(i+1));
 }
 function save(){
@@ -220,6 +244,15 @@ const cont = id => S.containers.find(c => c.id === id);
 const bayOf = id => S.bays.find(b => b.containerId === id);
 /* bales to aim for: bay override, else the material's default target */
 const targetOf = b => b.target ?? mat(b.material).typical ?? 0;
+const nextOrderNo = m => m.orderPrefix ? m.orderPrefix + String((m.orderLast||0) + 1).padStart(m.orderDigits || 3, '0') : '';
+/* if an order number fits a material's sequence, return its running number */
+function orderSeq(m, no){
+  if (!m.orderPrefix || !no) return null;
+  no = String(no).toUpperCase().trim();
+  if (!no.startsWith(m.orderPrefix)) return null;
+  const n = no.slice(m.orderPrefix.length);
+  return /^\d+$/.test(n) ? parseInt(n, 10) : null;
+}
 const estNet = b =>(b.bales||0) * (mat(b.material).baleKg||0);
 const spares = () => S.containers.filter(c => !bayOf(c.id));
 
@@ -328,6 +361,7 @@ function renderYard(){
     <div class="summary">
       <div class="stat"><span>Containers in yard</span><b>${placed} / ${BAY_COUNT}</b></div>
       <div class="stat"><span>At target</span><b class="${atTarget?'pos':''}">${atTarget}</b></div>
+      <div class="stat"><span>Booked for pickup</span><b>${S.bays.filter(b => b.containerId && b.booking).length}</b></div>
       <div class="stat"><span>Bales on site</span><b>${bales.toLocaleString('en-AU')}</b></div>
       <div class="stat"><span>Est. weight on site</span><b>${tn(net)}</b></div>
       <div class="stat"><span>Loads out this month</span><b>${monthLoads.length}</b></div>
@@ -381,11 +415,83 @@ function bayCard(b){
         ${tgt ? `<dt>Est. load at target</dt><dd>${kg(tgt * m.baleKg)}</dd>` : ''}
         <dt class="muted">Avg per bale (${esc(m.code)})</dt><dd class="muted">${bt(m.baleKg)}</dd>
       </dl>
+      ${b.booking ? `<div class="booked">🚚 <b>${esc(b.booking.orderNo || 'no order no.')}</b><span class="muted" style="margin-left:auto">${new Date(b.booking.at).toLocaleDateString('en-AU',{day:'numeric',month:'short'})}</span></div>` : ''}
       <div class="actions">
         <button class="primary" onclick="openSwap(${b.n})">Truck swap</button>
+        <button class="book ${b.booking?'done':''}" onclick="openBook(${b.n})">${b.booking ? 'Booked ✓' : 'Book'}</button>
         <button onclick="openPlace(${b.n})">Change</button>
       </div>
     </div>`;
+}
+
+/* =========================================================
+   BOOKING (Linfox)
+   ========================================================= */
+function openBook(n){
+  const b = bay(n), c = cont(b.containerId), m = mat(b.material);
+  const head = `<p><b>Bay ${n}</b> · ${esc(c.id)} · <span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span> · ${b.bales} bales (${kg(estNet(b))})</p>`;
+  if (b.booking){
+    return openDlg('Booking', `${head}
+      <p>Booked with order number</p><div class="orderno">${esc(b.booking.orderNo || '—')}</div>
+      <p class="muted">Booked ${fmtDate(b.booking.at)}. The booking clears when the truck swap is done.</p>`,
+      `<button class="danger" onclick="cancelBook(${n})" style="margin-right:auto">Remove booking</button>
+       <button onclick="copyText('${esc(b.booking.orderNo||'')}')">Copy number</button>
+       <button onclick="window.open(LINFOX_URL,'_blank','noopener')">Open Linfox portal</button>
+       <button class="primary" onclick="closeDlg()">Close</button>`);
+  }
+  openDlg('Book a pickup', `${head}
+    <h3 style="margin-top:14px">Is this container already booked with Linfox?</h3>`,
+    `<button onclick="closeDlg()" style="margin-right:auto">Cancel</button>
+     <button onclick="bookAlready(${n})">Yes, already booked</button>
+     <button class="primary" onclick="bookNow(${n})">No, book it now</button>`);
+}
+/* "No": work out the next order number, copy it, open the portal */
+function bookNow(n){
+  const b = bay(n), m = mat(b.material), no = nextOrderNo(m);
+  window.open(LINFOX_URL, '_blank', 'noopener');
+  if (no) copyText(no, true);
+  openDlg('Book with Linfox', `
+    <p>The Linfox portal has opened in a new tab. Use this <b>order number</b>${no ? ' (already copied, just paste it)' : ''}:</p>
+    <input id="bk-no" class="orderno" style="width:100%" value="${esc(no)}" placeholder="enter order number">
+    ${no ? `<p class="muted">Next in the ${esc(m.code)} sequence (last used ${esc(m.orderPrefix + String(m.orderLast||0).padStart(m.orderDigits||3,'0'))}). You can change it if needed.</p>`
+         : `<div class="note">No order number sequence is set for ${esc(m.code)} yet. Type the number you used, or set the sequence on the Materials tab.</div>`}
+    <p>Once you've submitted the booking in the portal, click <b>Mark as booked</b>.</p>`,
+    `<button onclick="closeDlg()" style="margin-right:auto">Cancel</button>
+     <button onclick="copyText($('#bk-no').value)">Copy number</button>
+     <button onclick="window.open(LINFOX_URL,'_blank','noopener')">Open portal again</button>
+     <button class="primary" onclick="markBooked(${n})">Mark as booked</button>`);
+}
+/* "Yes": just record it, with the order number if they have it */
+function bookAlready(n){
+  const b = bay(n), m = mat(b.material);
+  openDlg('Already booked', `
+    <label>Order number used (optional)</label>
+    <input id="bk-no" class="orderno" style="width:100%" placeholder="${esc(nextOrderNo(m) || 'e.g. CRCMRF-OCC0110')}">
+    <p class="muted">If it's in the ${esc(m.code)} sequence, the sequence moves on so the next booking gets the following number.</p>`,
+    `<button onclick="closeDlg()" style="margin-right:auto">Cancel</button>
+     <button class="primary" onclick="markBooked(${n})">Save</button>`);
+}
+function markBooked(n){
+  const b = bay(n), m = mat(b.material);
+  const no = String($('#bk-no').value || '').toUpperCase().replace(/\s+/g,'').trim();
+  const seq = orderSeq(m, no);
+  if (seq != null && seq > (m.orderLast||0)) m.orderLast = seq;      // advance the sequence
+  b.booking = { orderNo: no, at: new Date().toISOString() };
+  save(); closeDlg(); render(); toast(`Bay ${n} booked${no ? ' · ' + no : ''}`);
+}
+function cancelBook(n){
+  if (!confirm('Remove this booking? (The order number sequence is not wound back.)')) return;
+  bay(n).booking = null; save(); closeDlg(); render();
+}
+function copyText(t, quiet){
+  if (!t) return;
+  const done = () => quiet || toast(`Copied ${t}`);
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(done, () => fallbackCopy(t, done));
+  else fallbackCopy(t, done);
+}
+function fallbackCopy(t, done){
+  const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch(e) {} ta.remove();
 }
 
 function bay(n){ return S.bays.find(b => b.n === +n); }
@@ -486,6 +592,7 @@ function openSwap(n){
     <div class="cols">
       <fieldset>
         <legend>Going out — full</legend>
+        ${b.booking ? `<div class="booked" style="margin-bottom:6px">🚚 Booked <b>${esc(b.booking.orderNo||'')}</b></div>` : '<div class="note" style="margin:0 0 6px">Not booked yet</div>'}
         <div class="cid">${esc(c.id)}</div>
         <div class="muted">Tare ${tareOf(c)!=null ? kg(tareOf(c)) + tareSrc(c) : '<span class="neg">unknown</span>'} · <span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span> ${bt(m.baleKg)} avg/bale</div>
         <label>Bales in container</label>
@@ -593,6 +700,7 @@ function doSwap(){
   const now = new Date().toISOString();
   S.history.unshift({
     id: uid(), date: now, bay: r.b.n, rego: r.rego || '',
+    orderNo: r.b.booking?.orderNo || '',
     outId: r.c.id, outTare: r.outTare, material: r.m.code, bales: r.bales, target: targetOf(r.b) || null, baleKg: r.m.baleKg, estNet: r.net,
     inId: r.inId, inTare: r.inTare || 0, weighIn: r.weighIn,
     truckTare: r.truckTare, predicted: r.predicted, actualOut: r.actualOut, startedAt: r.b.startedAt
@@ -604,7 +712,7 @@ function doSwap(){
     delete ic.outSince;
   }
   const b = r.b;
-  b.containerId = r.inId; b.material = $('#sw-mat').value; b.bales = 0; b.startedAt = null; b.log = [];
+  b.containerId = r.inId; b.material = $('#sw-mat').value; b.bales = 0; b.startedAt = null; b.log = []; b.booking = null;
   save(); closeDlg(); render();
   toast(`${r.c.id} dispatched${r.inId ? ` · ${r.inId} now in Bay ${b.n}` : ''}`);
 }
@@ -729,6 +837,18 @@ function renderMaterials(){
           <td>${S.bays.some(b => b.material===m.code) || S.materials.length<2 ? '' : `<button class="small danger" onclick="delMat(${i})">Delete</button>`}</td>
         </tr>`; }).join('')}
       </table></div>
+      <h3 style="margin-top:22px">Linfox order numbers</h3>
+      <p class="muted">Each booking uses the next number in the material's sequence, e.g. <b>CRCMRF-OCC0110</b>. Set <b>Last used</b> to the most recent number booked, and the Book button carries on from there.</p>
+      <div class="tbl-wrap"><table>
+        <tr><th>Material</th><th>Order prefix</th><th class="n">Digits</th><th class="n">Last used</th><th>Next booking gets</th></tr>
+        ${S.materials.map((m,i) => `<tr>
+          <td><span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span></td>
+          <td><input class="wide" value="${esc(m.orderPrefix||'')}" placeholder="e.g. CRCMRF-STL" onchange="setMatField(${i},'orderPrefix',this.value)" style="font-family:ui-monospace,Consolas,monospace"></td>
+          <td class="n"><input type="number" min="1" max="8" value="${m.orderDigits||3}" onchange="setMatField(${i},'orderDigits',this.value)" style="width:70px"></td>
+          <td class="n"><input type="number" min="0" value="${m.orderLast||0}" onchange="setMatField(${i},'orderLast',this.value)" style="width:90px"></td>
+          <td>${m.orderPrefix ? `<b style="font-family:ui-monospace,Consolas,monospace">${esc(nextOrderNo(m))}</b>` : '<span class="muted">set a prefix</span>'}</td>
+        </tr>`).join('')}
+      </table></div>
       <h3 style="margin-top:18px">Add a material</h3>
       <div class="row">
         <div><label>Code</label><input id="m-code" placeholder="e.g. PET" style="width:110px"></div>
@@ -742,7 +862,8 @@ function renderMaterials(){
 function setMatField(i, f, v){
   const m = S.materials[i];
   if (f==='baleKg'){ const x = toKg(v); if (x==null) return toast('Invalid weight'); m[f] = x; }
-  else if (f==='typical'){ const x = num(v); if (x==null || x<0) return toast('Invalid number'); m[f] = Math.round(x); }
+  else if (f==='typical' || f==='orderLast' || f==='orderDigits'){ const x = num(v); if (x==null || x<0) return toast('Invalid number'); m[f] = Math.round(x); }
+  else if (f==='orderPrefix') m[f] = v.toUpperCase().replace(/\s+/g,'').trim();
   else m[f] = v;
   save(); render(); toast(`${m.code} updated`);
 }
@@ -753,7 +874,7 @@ function addMat(){
   if (S.materials.some(m => m.code===code)) return toast('Code already exists');
   if (kgv==null || kgv<=0) return toast('Enter avg tonnes per bale');
   const palette = ['#8e44ad','#c0392b','#16a085','#d35400','#2c3e50','#7f8c8d'];
-  S.materials.push({ code, name:$('#m-name').value.trim() || code, baleKg:kgv, typical:num($('#m-typ').value)||0, color:palette[S.materials.length % palette.length] });
+  S.materials.push({ code, name:$('#m-name').value.trim() || code, baleKg:kgv, typical:num($('#m-typ').value)||0, color:palette[S.materials.length % palette.length], orderPrefix:'', orderDigits:3, orderLast:0 });
   save(); render();
 }
 function delMat(i){ if (!confirm(`Delete ${S.materials[i].code}? History keeps its records.`)) return; S.materials.splice(i,1); save(); render(); }
@@ -771,17 +892,17 @@ function renderHistory(){
       </div>
       <p class="muted">Add the actual weigh-out when the docket comes through — the actual load and tonnes per bale are worked out from it and feed the learned averages on Materials.</p>
       <div class="tbl-wrap"><table>
-        <tr><th>Date</th><th>Bay</th><th>Out</th><th>Mat.</th><th class="n">Bales / target</th><th class="n">Est. load</th><th>Truck</th><th>In</th>
+        <tr><th>Date</th><th>Bay</th><th>Out</th><th>Mat.</th><th class="n">Bales / target</th><th class="n">Est. load</th><th>Order no.</th><th>Truck</th><th>In</th>
             <th class="n">Truck tare</th><th class="n">Predicted out</th><th class="n">Actual out</th><th class="n">Actual load</th><th class="n">t/bale</th><th class="n">Diff</th><th></th></tr>
         ${h.length ? h.map(x => { const c = hCalc(x); return `<tr>
           <td>${fmtDate(x.date)}</td><td>${x.bay}</td><td><b>${esc(x.outId)}</b></td>
           <td><span class="chip" style="--mc:${esc(mat(x.material).color)}">${esc(x.material)}</span></td>
-          <td class="n">${x.bales}${x.target ? `<span class="muted"> / ${x.target}</span>` : ''}</td><td class="n">${kg(x.estNet)}</td><td>${esc(x.rego||'—')}</td><td>${esc(x.inId||'—')}</td>
+          <td class="n">${x.bales}${x.target ? `<span class="muted"> / ${x.target}</span>` : ''}</td><td class="n">${kg(x.estNet)}</td><td>${esc(x.orderNo||'—')}</td><td>${esc(x.rego||'—')}</td><td>${esc(x.inId||'—')}</td>
           <td class="n">${kg(c.truckTare)}</td><td class="n"><b>${kg(c.predicted)}</b></td><td class="n">${kg(x.actualOut)}</td>
           <td class="n">${kg(c.actualNet)}</td><td class="n">${c.perBale!=null?bt(c.perBale):'—'}</td>
           <td class="n ${c.diff==null?'':Math.abs(c.diff)>1000?'neg':'pos'}">${c.diff!=null?signed(c.diff):'—'}</td>
           <td><button class="small" onclick="editHist('${x.id}')">Edit</button></td>
-        </tr>`; }).join('') : `<tr><td colspan="15" class="muted">No loads dispatched yet. Use <b>Truck swap</b> on a bay.</td></tr>`}
+        </tr>`; }).join('') : `<tr><td colspan="16" class="muted">No loads dispatched yet. Use <b>Truck swap</b> on a bay.</td></tr>`}
       </table></div>
     </div>`;
 }
@@ -817,8 +938,8 @@ function saveHist(id){
 function delHist(id){ if (!confirm('Delete this load from history?')) return; S.history = S.history.filter(h => h.id!==id); save(); closeDlg(); render(); }
 function exportCSV(){
   const T = v => v==null || v==='' ? '' : (v/1000).toFixed(3);
-  const head = ['Date','Bay','Container out','Out tare (t)','Material','Bales','Target bales','Avg t/bale used','Est load (t)','Truck rego','Container in','In tare (t)','Weigh-in (t)','Truck tare (t)','Predicted out (t)','Actual out (t)','Actual load (t)','Actual t/bale','Diff (t)'];
-  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, T(x.outTare), x.material, x.bales, x.target??'', T(x.baleKg), T(x.estNet), x.rego, x.inId||'', T(x.inTare), T(x.weighIn), T(c.truckTare), T(c.predicted), T(x.actualOut), T(c.actualNet), T(c.perBale), T(c.diff)]; });
+  const head = ['Date','Bay','Container out','Out tare (t)','Material','Bales','Target bales','Avg t/bale used','Est load (t)','Linfox order no.','Truck rego','Container in','In tare (t)','Weigh-in (t)','Truck tare (t)','Predicted out (t)','Actual out (t)','Actual load (t)','Actual t/bale','Diff (t)'];
+  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, T(x.outTare), x.material, x.bales, x.target??'', T(x.baleKg), T(x.estNet), x.orderNo||'', x.rego, x.inId||'', T(x.inTare), T(x.weighIn), T(c.truckTare), T(c.predicted), T(x.actualOut), T(c.actualNet), T(c.perBale), T(c.diff)]; });
   const csv = [head, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   download(`container-loads-${new Date().toISOString().slice(0,10)}.csv`, csv, 'text/csv');
 }
@@ -902,6 +1023,7 @@ function fromRemote(){
   s.prefixes = vals('prefixes');
   const mats = vals('materials').sort((a, b) => (a._i ?? 0) - (b._i ?? 0)).map(({ _i, ...m }) => m);
   if (mats.length) s.materials = mats;
+  migrate(s);
   s.trucks = {}; vals('trucks').forEach(({ rego, ...t }) => s.trucks[rego] = t);
   s.history = vals('history').sort((a, b) => String(b.date).localeCompare(String(a.date)));
   return s;

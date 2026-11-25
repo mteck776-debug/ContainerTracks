@@ -14,6 +14,7 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 | Tab | Purpose |
 |---|---|
 | **Yard** | Six bays. Each shows its container number, tare, material, bale count (−/+1/+5 or type it in), estimated load and gross. |
+| **Book** | Asks whether the container is already booked. If **No**: works out the next Linfox order number for that material, copies it, and opens the [Linfox Customer Portal](https://portal.linfox.com/). Click **Mark as booked** once it's submitted. If **Yes**: record the order number used. The bay shows the booking until the truck swap, and the order number goes into History. |
 | **Truck swap** | Records a full container leaving and the empty one replacing it, and predicts the weigh-out. |
 | **Containers & Trucks** | **Tare by prefix** list (e.g. `AFDB → 4.60 t`), the container register, and the trucks the app has learned. |
 | **Materials** | OCC, MXP, ALI, HDPE C, Steel, each with an average tonnes per bale and a **target bales** default. You can add more. |
@@ -25,6 +26,20 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 Each material has a default number of bales to aim for per container. You can override it on any bay card by typing into its **Target** box. The **use default** link sets it back to the material's default.
 
 The bay card shows bales / target, a progress bar and how many bales are left to go. The card turns **green** when the target is reached and **amber** when it goes over. The Yard summary counts how many containers are at target, and each dispatched load records its target in History.
+
+## Linfox order numbers
+
+Each material has its own order number sequence. You can edit them on the **Materials** tab:
+
+| Material | Format | Last used (starting point) |
+|---|---|---|
+| OCC | `CRCMRF-OCC####` | CRCMRF-OCC0109 |
+| MXP | `CRCMRF-MXP####` | CRCMRF-MXP0121 |
+| HDPE C | `CRCMRF-HDCO###` | CRCMRF-HDCO001 |
+| ALI | `CRCMRF-MALU###` | CRCMRF-MALU001 |
+| Steel | not set yet | |
+
+The next booking uses *last used + 1*. If you type a number that's further along the sequence, the sequence jumps forward to match.
 
 ## Tare by prefix
 
