@@ -16,9 +16,15 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 | **Yard** | Six bays. Each shows its container number, tare, material, bale count (−/+1/+5 or type it in), estimated load and gross. |
 | **Truck swap** | Records a full container leaving and the empty one replacing it, and predicts the weigh-out. |
 | **Containers & Trucks** | **Tare by prefix** list (e.g. `AFDB → 4.60 t`), the container register, and the trucks the app has learned. |
-| **Materials** | OCC, MXP, ALI, HDPE C, Steel, each with an average kg/bale. You can add more. |
+| **Materials** | OCC, MXP, ALI, HDPE C, Steel, each with an average kg/bale and a **target bales** default. You can add more. |
 | **History** | Every dispatched load. Add the actual weigh-out here to see actual load, actual kg/bale and how far off the prediction was. Exports to CSV. |
 | **Backup** | Download or restore a JSON backup. |
+
+## Target bales
+
+Each material has a default number of bales to aim for per container. You can override it on any bay card by typing into its **Target** box. The **use default** link sets it back to the material's default.
+
+The bay card shows bales / target, a progress bar and how many bales are left to go. The card turns **green** when the target is reached and **amber** when it goes over. The Yard summary counts how many containers are at target, and each dispatched load records its target in History.
 
 ## Tare by prefix
 

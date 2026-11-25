@@ -53,7 +53,15 @@
   .bales input{width:84px;text-align:center;font-size:26px;font-weight:800;padding:4px}
   .bales button{min-width:44px;font-size:17px;font-weight:700;padding:8px}
   .gauge{height:8px;background:#e7eaee;border-radius:9px;overflow:hidden}
-  .gauge i{display:block;height:100%;background:var(--mc,#888)}
+  .gauge i{display:block;height:100%;background:var(--mc,#888);transition:width .2s}
+  .target{background:#f6f8fa;border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+  .target .gauge{height:12px}
+  .target.hit{background:#e9f7ef;border-color:#9fd8b6} .target.hit .gauge i{background:var(--good)}
+  .target.over{background:#fff7e6;border-color:#f2d39b} .target.over .gauge i{background:var(--warn)}
+  .tgt-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tgt-row input{width:70px;padding:4px 6px;font-weight:700;text-align:center}
+  .tgt-row a{color:inherit}
+  .warn{color:var(--warn)}
   .figs{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:14px;margin:0}
   .figs dt{color:var(--muted)} .figs dd{margin:0;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
   .figs .big{font-size:17px}
@@ -175,7 +183,9 @@ function save(){
 const mat  = code => S.materials.find(m => m.code === code) || { code, name:code, baleKg:0, typical:0, color:'#888' };
 const cont = id => S.containers.find(c => c.id === id);
 const bayOf = id => S.bays.find(b => b.containerId === id);
-const estNet = b => (b.bales||0) * (mat(b.material).baleKg||0);
+/* bales to aim for: bay override, else the material's default target */
+const targetOf = b => b.target ?? mat(b.material).typical ?? 0;
+const estNet = b =>(b.bales||0) * (mat(b.material).baleKg||0);
 const spares = () => S.containers.filter(c => !bayOf(c.id));
 
 /* ---------- prefix tares ----------
@@ -273,8 +283,8 @@ function render(){
    YARD
    ========================================================= */
 function renderYard(){
-  let bales=0, net=0, placed=0;
-  S.bays.forEach(b => { if (b.containerId){ placed++; bales += b.bales; net += estNet(b); } });
+  let bales=0, net=0, placed=0, atTarget=0;
+  S.bays.forEach(b => { if (b.containerId){ placed++; bales += b.bales; net += estNet(b); if (targetOf(b) && b.bales >= targetOf(b)) atTarget++; } });
   const now = new Date();
   const monthLoads = S.history.filter(h => { const d=new Date(h.date); return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear(); });
   const monthNet = monthLoads.reduce((s,h) => { const c=hCalc(h); return s + (c.actualNet ?? h.estNet); }, 0);
@@ -282,6 +292,7 @@ function renderYard(){
   $('#main').innerHTML = `
     <div class="summary">
       <div class="stat"><span>Containers in yard</span><b>${placed} / ${BAY_COUNT}</b></div>
+      <div class="stat"><span>At target</span><b class="${atTarget?'pos':''}">${atTarget}</b></div>
       <div class="stat"><span>Bales on site</span><b>${bales.toLocaleString('en-AU')}</b></div>
       <div class="stat"><span>Est. weight on site</span><b>${tn(net)}</b></div>
       <div class="stat"><span>Loads out this month</span><b>${monthLoads.length}</b></div>
@@ -299,7 +310,14 @@ function bayCard(b){
       <button class="primary" onclick="openPlace(${b.n})">Place container</button>
     </div>`;
   const m = mat(b.material), net = estNet(b), tare = tareOf(c);
-  const pct = m.typical ? Math.min(100, b.bales / m.typical * 100) : 0;
+  const tgt = targetOf(b), custom = b.target != null;
+  const pct = tgt ? Math.min(100, b.bales / tgt * 100) : 0;
+  const left = tgt ? tgt - b.bales : null;
+  const state = !tgt ? '' : left > 0 ? 'to-go' : left === 0 ? 'hit' : 'over';
+  const status = !tgt ? '<span class="muted">No target set</span>'
+    : state === 'to-go' ? `<b>${left}</b> to go`
+    : state === 'hit'   ? '<b class="pos">✓ Target reached</b>'
+    :                     `<b class="warn">${-left} over target</b>`;
   return `
     <div class="bay" style="--mc:${esc(m.color)}">
       <div class="bay-head">
@@ -313,11 +331,20 @@ function bayCard(b){
         <button onclick="adj(${b.n},1)">+1</button>
         <button onclick="adj(${b.n},5)">+5</button>
       </div>
-      <div class="gauge"><i style="width:${pct}%"></i></div>
-      <div class="muted">${b.bales} bales${m.typical?` of ~${m.typical} typical`:''} · ${m.baleKg} kg avg/bale</div>
+      <div class="target ${state}">
+        <div class="tgt-row">
+          <span>Target</span>
+          <input type="number" min="0" inputmode="numeric" value="${tgt||''}" placeholder="—" onchange="setTarget(${b.n},this.value)" aria-label="Target bales" title="Bales to aim for in this container">
+          <span class="muted">${custom ? `bay target · <a href="#" onclick="setTarget(${b.n},'');return false">use ${esc(m.code)} default (${m.typical||'none'})</a>` : `${esc(m.code)} default`}</span>
+        </div>
+        <div class="gauge"><i style="width:${pct}%"></i></div>
+        <div class="tgt-row" style="justify-content:space-between"><span>${b.bales}${tgt?` / ${tgt}`:''} bales · ${pct ? Math.round(b.bales/tgt*100) : 0}%</span><span>${status}</span></div>
+      </div>
       <dl class="figs">
         <dt>Est. load</dt><dd class="big">${kg(net)}</dd>
         <dt>Est. gross (load + tare)</dt><dd>${tare!=null ? kg(net + tare) : '—'}</dd>
+        ${tgt ? `<dt>Est. load at target</dt><dd>${kg(tgt * m.baleKg)}</dd>` : ''}
+        <dt class="muted">Avg kg/bale (${esc(m.code)})</dt><dd class="muted">${m.baleKg} kg</dd>
       </dl>
       <div class="actions">
         <button class="primary" onclick="openSwap(${b.n})">Truck swap</button>
@@ -338,6 +365,12 @@ function adj(n, d){
 function setBales(n, v){
   const x = Math.max(0, Math.round(num(v) ?? 0));
   adj(n, x - bay(n).bales); render();
+}
+function setTarget(n, v){
+  const b = bay(n), x = num(v);
+  b.target = (String(v).trim()==='' || x==null || x<=0) ? null : Math.round(x);
+  if (b.target === mat(b.material).typical) b.target = null;   // same as default → follow default
+  save(); render();
 }
 function setMat(n, code){ bay(n).material = code; save(); render(); }
 
@@ -413,6 +446,7 @@ function openSwap(n){
         <div class="muted">Tare ${tareOf(c)!=null ? tn(tareOf(c)) + tareSrc(c) : '<span class="neg">unknown</span>'} · <span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span> ${m.baleKg} kg avg/bale</div>
         <label>Bales in container</label>
         <input id="sw-bales" type="number" min="0" inputmode="numeric" value="${b.bales}" oninput="swCalc()">
+        <div id="sw-tgt" class="muted" style="margin-top:6px"></div>
       </fieldset>
       <fieldset>
         <legend>Coming in — empty</legend>
@@ -467,6 +501,8 @@ function swRead(){
 
 function swCalc(){
   const r = swRead();
+  const tgt = targetOf(r.b), d = r.bales - tgt;
+  $('#sw-tgt').innerHTML = !tgt ? 'No target set' : d < 0 ? `<span class="warn">${-d} bales short of the ${tgt} target</span>` : d === 0 ? `<span class="pos">✓ On target (${tgt})</span>` : `<span class="warn">${d} over the ${tgt} target</span>`;
   const rows = [];
   if (r.src === 'in'){
     rows.push(['', 'Weigh-in (truck + empty)', kg(r.weighIn)]);
@@ -514,7 +550,7 @@ function doSwap(){
   const now = new Date().toISOString();
   S.history.unshift({
     id: uid(), date: now, bay: r.b.n, rego: r.rego || '',
-    outId: r.c.id, outTare: r.outTare, material: r.m.code, bales: r.bales, baleKg: r.m.baleKg, estNet: r.net,
+    outId: r.c.id, outTare: r.outTare, material: r.m.code, bales: r.bales, target: targetOf(r.b) || null, baleKg: r.m.baleKg, estNet: r.net,
     inId: r.inId, inTare: r.inTare || 0, weighIn: r.weighIn,
     truckTare: r.truckTare, predicted: r.predicted, actualOut: r.actualOut, startedAt: r.b.startedAt
   });
@@ -638,9 +674,9 @@ function renderMaterials(){
     <div class="panel">
       <h2>Materials &amp; average bale weights</h2>
       <p class="muted">The yard estimates use <b>avg kg/bale</b>. Once loads have an actual weigh-out in History, the <b>learned</b> column shows the real average — hit <b>Use</b> to adopt it.
-      "Typical bales" just drives the fill bar on each bay.</p>
+      <b>Target bales</b> is how many bales to aim for per container — each bay uses it unless you set a different target on the bay card.</p>
       <div class="tbl-wrap"><table>
-        <tr><th>Colour</th><th>Code</th><th>Name</th><th class="n">Avg kg / bale</th><th class="n">Typical bales / container</th><th class="n">Learned from weigh-outs</th><th></th></tr>
+        <tr><th>Colour</th><th>Code</th><th>Name</th><th class="n">Avg kg / bale</th><th class="n">Target bales / container</th><th class="n">Learned from weigh-outs</th><th></th></tr>
         ${S.materials.map((m,i) => { const l = learned(m.code); return `<tr>
           <td><input type="color" value="${esc(m.color)}" onchange="setMatField(${i},'color',this.value)" style="width:44px;padding:2px"></td>
           <td><span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span></td>
@@ -656,7 +692,7 @@ function renderMaterials(){
         <div><label>Code</label><input id="m-code" placeholder="e.g. PET" style="width:110px"></div>
         <div><label>Name</label><input id="m-name" placeholder="e.g. PET Clear"></div>
         <div><label>Avg kg / bale</label><input id="m-kg" type="number" style="width:120px"></div>
-        <div><label>Typical bales</label><input id="m-typ" type="number" style="width:110px"></div>
+        <div><label>Target bales</label><input id="m-typ" type="number" style="width:110px"></div>
         <div><button class="primary" onclick="addMat()">Add</button></div>
       </div>
     </div>`;
@@ -692,12 +728,12 @@ function renderHistory(){
       </div>
       <p class="muted">Add the actual weigh-out when the docket comes through — the actual load and kg/bale are worked out from it and feed the learned averages on Materials.</p>
       <div class="tbl-wrap"><table>
-        <tr><th>Date</th><th>Bay</th><th>Out</th><th>Mat.</th><th class="n">Bales</th><th class="n">Est. load</th><th>Truck</th><th>In</th>
+        <tr><th>Date</th><th>Bay</th><th>Out</th><th>Mat.</th><th class="n">Bales / target</th><th class="n">Est. load</th><th>Truck</th><th>In</th>
             <th class="n">Truck tare</th><th class="n">Predicted out</th><th class="n">Actual out</th><th class="n">Actual load</th><th class="n">kg/bale</th><th class="n">Diff</th><th></th></tr>
         ${h.length ? h.map(x => { const c = hCalc(x); return `<tr>
           <td>${fmtDate(x.date)}</td><td>${x.bay}</td><td><b>${esc(x.outId)}</b></td>
           <td><span class="chip" style="--mc:${esc(mat(x.material).color)}">${esc(x.material)}</span></td>
-          <td class="n">${x.bales}</td><td class="n">${kg(x.estNet)}</td><td>${esc(x.rego||'—')}</td><td>${esc(x.inId||'—')}</td>
+          <td class="n">${x.bales}${x.target ? `<span class="muted"> / ${x.target}</span>` : ''}</td><td class="n">${kg(x.estNet)}</td><td>${esc(x.rego||'—')}</td><td>${esc(x.inId||'—')}</td>
           <td class="n">${kg(c.truckTare)}</td><td class="n"><b>${kg(c.predicted)}</b></td><td class="n">${kg(x.actualOut)}</td>
           <td class="n">${kg(c.actualNet)}</td><td class="n">${c.perBale!=null?Math.round(c.perBale):'—'}</td>
           <td class="n ${c.diff==null?'':Math.abs(c.diff)>1000?'neg':'pos'}">${c.diff!=null?signed(c.diff):'—'}</td>
@@ -737,8 +773,8 @@ function saveHist(id){
 }
 function delHist(id){ if (!confirm('Delete this load from history?')) return; S.history = S.history.filter(h => h.id!==id); save(); closeDlg(); render(); }
 function exportCSV(){
-  const head = ['Date','Bay','Container out','Out tare','Material','Bales','Avg kg/bale used','Est load kg','Truck rego','Container in','In tare','Weigh-in','Truck tare','Predicted out','Actual out','Actual load','Actual kg/bale','Diff kg'];
-  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, x.outTare, x.material, x.bales, x.baleKg, x.estNet, x.rego, x.inId||'', x.inTare, x.weighIn??'', c.truckTare??'', c.predicted??'', x.actualOut??'', c.actualNet??'', c.perBale!=null?Math.round(c.perBale):'', c.diff??'']; });
+  const head = ['Date','Bay','Container out','Out tare','Material','Bales','Target bales','Avg kg/bale used','Est load kg','Truck rego','Container in','In tare','Weigh-in','Truck tare','Predicted out','Actual out','Actual load','Actual kg/bale','Diff kg'];
+  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, x.outTare, x.material, x.bales, x.target??'', x.baleKg, x.estNet, x.rego, x.inId||'', x.inTare, x.weighIn??'', c.truckTare??'', c.predicted??'', x.actualOut??'', c.actualNet??'', c.perBale!=null?Math.round(c.perBale):'', c.diff??'']; });
   const csv = [head, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   download(`container-loads-${new Date().toISOString().slice(0,10)}.csv`, csv, 'text/csv');
 }
