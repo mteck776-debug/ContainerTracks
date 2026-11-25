@@ -9,3 +9,7 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: "278400602124",
   appId: "1:278400602124:web:5f8db544b579b08514de29"
 };
+
+/* false = open straight to the yard (silent anonymous sign-in).
+   true  = show an email/password sign-in screen. */
+window.CT_REQUIRE_LOGIN = false;

@@ -927,7 +927,7 @@ function cloudPush(){
 }
 function cloudErr(e){
   console.error(e);
-  const msg = e && e.code === 'permission-denied' ? 'No permission — is your email on the allowed list?' : 'Save failed — ' + (e && e.message || e);
+  const msg = e && e.code === 'permission-denied' ? 'No permission — check the Firestore rules' : 'Save failed — ' + (e && e.message || e);
   setSync('err', 'Error'); toast(msg);
 }
 
@@ -967,7 +967,7 @@ function startListeners(){
     syncStatus();
   }, err => {
     cloudErr(err);
-    if (err.code === 'permission-denied') $('#main').innerHTML = `<div class="panel"><h2>No access</h2><p>You're signed in as <b>${esc(CLOUD.auth.currentUser?.email)}</b>, but that email isn't on the allowed list in the Firestore rules.</p></div>`;
+    if (err.code === 'permission-denied') $('#main').innerHTML = `<div class="panel"><h2>No access</h2><p>Firebase refused access. Check the Firestore rules have been published (Firestore Database → Rules).</p></div>`;
   }));
 }
 function firstLoad(){
@@ -992,11 +992,20 @@ window.cloudStart = ctx => {
   ctx.A.onAuthStateChanged(ctx.auth, user => {
     CLOUD.unsubs.forEach(u => u()); CLOUD.unsubs = []; CLOUD.loaded = false;
     if (!user){
-      $('#login').classList.remove('hidden'); $('#who').classList.add('hidden'); setSync('', 'Signed out');
-      setTimeout(() => $('#li-email').focus(), 50); return;
+      if (window.CT_REQUIRE_LOGIN){
+        $('#login').classList.remove('hidden'); $('#who').classList.add('hidden'); setSync('', 'Signed out');
+        setTimeout(() => $('#li-email').focus(), 50); return;
+      }
+      /* no login screen: sign in silently in the background */
+      setSync('busy', 'Connecting…');
+      ctx.A.signInAnonymously(ctx.auth).catch(e => {
+        cloudFail(e.code === 'auth/operation-not-allowed' || e.code === 'auth/admin-restricted-operation'
+          ? new Error('Anonymous sign-in is not turned on in Firebase (Authentication → Sign-in method → Anonymous).') : e);
+      });
+      return;
     }
     $('#login').classList.add('hidden');
-    $('#who').classList.remove('hidden'); $('#who span').textContent = user.email;
+    if (!user.isAnonymous){ $('#who').classList.remove('hidden'); $('#who span').textContent = user.email; }
     startListeners();
   });
 };

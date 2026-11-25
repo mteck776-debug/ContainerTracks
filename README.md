@@ -49,18 +49,16 @@ If you enter a truck rego the app remembers that truck's tare. When the same tru
 
 Once a load has an actual weigh-out, the app works out the real average tonnes per bale for that material. The **Materials** tab shows it under *Learned*, and **Use** makes it the new average.
 
-## Data & sign-in (Firebase)
+## Data (Firebase)
 
-The data is shared live between every device through the **Containers** Firebase project (`containers-73d69`). Everyone signs in with an email and password, and a change made on one device shows up on the others straight away. If the signal drops, the app keeps working and syncs when it's back online.
+The data is shared live between every device through the **Containers** Firebase project (`containers-73d69`). There's no login screen: the app signs in silently in the background (Firebase anonymous sign-in) and opens straight to the yard. If the signal drops, the app keeps working and syncs when it's back online.
 
 **One-time setup in the Firebase console**
 1. **Firestore Database** → Create database → production mode, location `australia-southeast1` (Sydney).
-2. **Firestore Database → Rules** → paste in [`firestore.rules`](firestore.rules), put the allowed email addresses in the list, then click **Publish**.
-3. **Authentication → Sign-in method** → enable **Email/Password**.
-4. **Authentication → Users** → **Add user** for each person (email + starting password). They can use *Forgot password?* on the sign-in screen to set their own.
-5. **Authentication → Settings → Authorized domains** → add `mteck776-debug.github.io`.
+2. **Firestore Database → Rules** → paste in [`firestore.rules`](firestore.rules) → **Publish**.
+3. **Authentication** → Get started → **Sign-in method** → enable **Anonymous**.
 
-To add someone later, add them as a user (step 4) **and** add their email to the rules list (step 2).
+Anyone with the app's link can view and change the data. To lock it down to named people later, set `CT_REQUIRE_LOGIN = true` in `firebase-config.js`, enable Email/Password sign-in, add users, and limit the rules to their emails.
 
 The connection settings are in `firebase-config.js`. If you set that file to `null`, the app runs on a single device with browser storage only.
 

@@ -1,22 +1,19 @@
 rules_version = '2';
 
 // Paste this into Firebase console → Firestore Database → Rules, then Publish.
-// Only the emails listed below can read or change yard data.
-// Add or remove people by editing the list and publishing again.
+// The app signs in silently (anonymous sign-in), so anyone who opens the app can use it.
+// Data must be one of the app's collections and documents are size-limited.
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function allowed() {
-      return request.auth != null
-        && request.auth.token.email in [
-          'you@example.com'
-        ];
-    }
-
     match /{collection}/{docId} {
-      allow read, write: if allowed()
+      allow read: if request.auth != null
         && collection in ['bays', 'containers', 'prefixes', 'materials', 'trucks', 'history'];
+      allow delete: if request.auth != null
+        && collection in ['containers', 'prefixes', 'materials', 'trucks', 'history'];
+      allow create, update: if request.auth != null
+        && collection in ['bays', 'containers', 'prefixes', 'materials', 'trucks', 'history']
+        && request.resource.data.size() < 40;
     }
   }
 }
