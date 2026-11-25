@@ -56,8 +56,10 @@
   .bay-head select{font-weight:700;padding:4px 8px}
   .cid{font-size:19px;font-weight:700;font-family:ui-monospace,Consolas,monospace;letter-spacing:.5px}
   .bales{display:flex;align-items:center;gap:6px}
-  .bales input{width:84px;text-align:center;font-size:26px;font-weight:800;padding:4px}
-  .bales button{min-width:44px;font-size:17px;font-weight:700;padding:8px}
+  .bales button.fill{min-width:0;flex:1;font-size:14px;background:var(--good);border-color:var(--good);color:#fff}
+  .bales button.fill:disabled{background:#e7eaee;border-color:var(--line);color:var(--muted);cursor:default}
+  .bales input{width:64px;text-align:center;font-size:26px;font-weight:800;padding:4px}
+  .bales button{min-width:40px;font-size:17px;font-weight:700;padding:8px}
   .gauge{height:8px;background:#e7eaee;border-radius:9px;overflow:hidden}
   .gauge i{display:block;height:100%;background:var(--mc,#888);transition:width .2s}
   .target{background:#f6f8fa;border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;font-size:14px}
@@ -470,6 +472,7 @@ function bayCard(b){
         <input type="number" min="0" inputmode="numeric" value="${b.bales}" onchange="setBales(${b.n},this.value)" aria-label="Bales">
         <button onclick="adj(${b.n},1)">+1</button>
         <button onclick="adj(${b.n},5)">+5</button>
+        <button class="fill" onclick="fillBay(${b.n})" ${!tgt || b.bales === tgt ? 'disabled' : ''} title="${tgt ? `Set to the target of ${tgt} bales` : 'Set a target first'}">Filled</button>
       </div>
       <div class="target ${state}">
         <div class="tgt-row">
@@ -678,6 +681,11 @@ function adj(n, d){
   if (!b.startedAt && nb > 0) b.startedAt = new Date().toISOString();
   b.log.push({ t:new Date().toISOString(), d:nb - b.bales });
   b.bales = nb; save(); render();
+}
+function fillBay(n){
+  const b = bay(n), tgt = targetOf(b);
+  if (!tgt) return toast('Set a target for this bay first');
+  adj(n, tgt - b.bales); toast(`Bay ${n} filled — ${tgt} bales`);
 }
 function setBales(n, v){
   const x = Math.max(0, Math.round(num(v) ?? 0));
