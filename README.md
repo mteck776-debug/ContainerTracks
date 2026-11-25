@@ -1,4 +1,4 @@
-# ContainerTracks
+# MRF Life
 
 Tracks the 6 container bays in the yard: what's in each container, how many bales, the estimated weight, and a predicted weighbridge reading when a truck swaps an empty for a full.
 
@@ -6,18 +6,18 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 
 ## Run it
 
-- **GitHub Pages:** go to repo **Settings → Pages**, set Source to *Deploy from a branch*, then pick `main` / `(root)`. The site appears at `https://mteck776-debug.github.io/ContainerTracks/`.
+- **GitHub Pages:** go to repo **Settings → Pages**, set Source to *Deploy from a branch*, then pick `main` / `(root)`. The site appears at `https://mteck776-debug.github.io/MRF Life/`.
 - **Locally:** double-click `index.html`.
 
 ## What it does
 
 | Tab | Purpose |
 |---|---|
-| **Yard** | Six bays. Each shows its container number, tare, material, bale count (−/+1/+5 or type it in), estimated load and gross. |
+| **Containers** | Six bays. Each shows its container number, tare, material, bale count (−/+1/+5 or type it in), estimated load and gross. |
 | **Book** | Asks whether the container is already booked. If **No**: opens the [Linfox Customer Portal](https://portal.linfox.com/) and shows a **booking sheet** laid out like the Linfox form: connote number, customer reference, container number, pickup details, delivery and freight details. Each field has its own **Copy** button, and **Copy all** copies the lot. Click **Mark as booked** once it's submitted. If **Yes**: record the order number used. The bay shows the booking until the truck swap, and the order number goes into History. |
 | **Day Sheet** | Trucks (e.g. 9 axle B-doubles) loaded with bales. Add the company, commodity and truck setup. When the truck arrives, add its rego and tare, and the sheet shows how many tonnes and **how many bales** it can take. Add bales loaded and the weigh-out to get the net. You can plan future loads on any date, see them under **Upcoming loads**, and print the sheet. Company names and truck tares are remembered. |
 | **Truck swap** | Records the 1st weigh (truck in) and 2nd weigh (truck out, loaded) and works out the net weight of material. The empty container takes over the bay. |
-| **Containers & Trucks** | **Tare by prefix** list (e.g. `AFDB → 4.60 t`), the container register, and the trucks the app has learned. |
+| **Tares & Trucks** | **Tare by prefix** list (e.g. `AFDB → 4.60 t`), the container register, and the trucks the app has learned. |
 | **Materials** | OCC, MXP, ALI, HDPE C, Steel, each with an average tonnes per bale and a **target bales** default. You can add more. |
 | **History** | Every dispatched load with both weighings, the net weight, tonnes per bale and the difference from the bale estimate. Exports to CSV. |
 | **Backup** | Download or restore a JSON backup. |

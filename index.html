@@ -3,11 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ContainerTracks</title>
+<title>MRF Life</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#1c2530">
+<meta name="apple-mobile-web-app-title" content="MRF Life">
+<meta name="application-name" content="MRF Life">
 <style>
   :root{
     --bg:#eef1f4; --panel:#fff; --ink:#18202a; --muted:#66707c; --line:#d8dde3;
@@ -158,11 +160,11 @@
 <body>
 <header>
   <div class="bar-top">
-    <div class="brand"><img src="favicon.svg" alt="" width="34" height="34">ContainerTracks</div>
+    <div class="brand"><img src="favicon.svg" alt="" width="34" height="34">MRF Life</div>
     <nav id="nav">
-      <button data-v="yard" class="on">Yard</button>
+      <button data-v="yard" class="on">Containers</button>
       <button data-v="daysheet">Day Sheet</button>
-      <button data-v="containers">Containers &amp; Trucks</button>
+      <button data-v="containers">Tares &amp; Trucks</button>
       <button data-v="materials">Materials</button>
       <button data-v="history">History</button>
       <button data-v="backup">Backup</button>
@@ -184,7 +186,7 @@
 
 <div id="login" class="hidden">
   <form class="card" onsubmit="cloudSignIn(event)">
-    <div class="brand" style="color:var(--ink);margin-bottom:6px"><img src="favicon.svg" alt="" width="34" height="34">ContainerTracks</div>
+    <div class="brand" style="color:var(--ink);margin-bottom:6px"><img src="favicon.svg" alt="" width="34" height="34">MRF Life</div>
     <p class="muted" style="margin:0 0 10px">Sign in to see and update the yard.</p>
     <label>Email</label><input id="li-email" type="email" autocomplete="username" required>
     <label>Password</label><input id="li-pass" type="password" autocomplete="current-password" required>
@@ -201,7 +203,7 @@
 
 <script>
 /* =========================================================
-   ContainerTracks — yard container & bale tracker
+   MRF Life — yard containers, bales, bookings and day sheet
    With firebase-config.js filled in, data is shared live through Firestore
    (one doc per bay / container / prefix / material / truck / load).
    Without it, data stays in this browser (localStorage).
@@ -462,7 +464,7 @@ function bayCard(b){
         <select onchange="setMat(${b.n},this.value)" title="Material">${S.materials.map(x=>`<option value="${esc(x.code)}" ${x.code===b.material?'selected':''}>${esc(x.code)}</option>`).join('')}</select>
         </span>
       </div>
-      <div><div class="cid">${esc(c.id)}</div><div class="muted">${tare!=null ? `Tare ${kg(tare)}${tareSrc(c)}` : '<span class="neg">Tare unknown — set it in Containers</span>'}${b.startedAt?` · loading since ${fmtDate(b.startedAt)}`:''}</div></div>
+      <div><div class="cid">${esc(c.id)}</div><div class="muted">${tare!=null ? `Tare ${kg(tare)}${tareSrc(c)}` : '<span class="neg">Tare unknown — set it on Tares & Trucks</span>'}${b.startedAt?` · loading since ${fmtDate(b.startedAt)}`:''}</div></div>
       <div class="bales">
         <button onclick="adj(${b.n},-1)" title="Remove a bale">−</button>
         <input type="number" min="0" inputmode="numeric" value="${b.bales}" onchange="setBales(${b.n},this.value)" aria-label="Bales">
@@ -577,7 +579,7 @@ function bookNow(n){
   openLinfox();
   if (no) copyText(no, true);
   openDlg('Book with Linfox', `
-    <p class="muted" style="margin-top:0">The Linfox portal has opened in its own window on the right. Drag ContainerTracks to the left half to copy fields across. Copy each field across${no ? ' (the connote number is already copied)' : ''}.</p>
+    <p class="muted" style="margin-top:0">The Linfox portal has opened in its own window on the right. Drag MRF Life to the left half to copy fields across. Copy each field across${no ? ' (the connote number is already copied)' : ''}.</p>
     <div class="row">
       <div style="flex:1"><label>Connote / order number</label><input id="bk-no" value="${esc(no)}" placeholder="enter order number" oninput="bkRefresh(${n})" style="font:700 18px ui-monospace,Consolas,monospace"></div>
       <div><label>Bales</label><input id="bk-bales" type="number" min="0" value="${b.bales}" oninput="bkRefresh(${n})" style="width:90px;font-size:18px;font-weight:700"></div>
@@ -613,7 +615,7 @@ function cancelBook(n){
   bay(n).booking = null; save(); closeDlg(); render();
 }
 /* Linfox in its own window on the right half of the screen (re-used if already open),
-   so ContainerTracks can sit on the left for copying fields across. */
+   so MRF Life can sit on the left for copying fields across. */
 function openLinfox(){
   const sw = screen.availWidth, sh = screen.availHeight, w = Math.round(sw / 2);
   const left = (screen.availLeft || 0) + sw - w, top = screen.availTop || 0;
@@ -874,7 +876,7 @@ function swCalc(){
       <div class="muted" style="margin-top:8px">Enter the 2nd weigh to get the actual net weight.</div>`;
   }
   if (r.weighIn!=null && r.inTare!=null && r.weighIn < r.inTare) html += '<div class="note">1st weigh is less than the empty container tare — check the numbers.</div>';
-  if (r.outTare == null) html += `<div class="note">No tare for ${esc(r.c.id)} — add its prefix tare on the Containers tab.</div>`;
+  if (r.outTare == null) html += `<div class="note">No tare for ${esc(r.c.id)} — add its prefix tare on the Tares & Trucks tab.</div>`;
   $('#sw-calc').innerHTML = html;
 }
 
@@ -901,7 +903,7 @@ function doSwap(){
     if (bayOf(r.inId)) return toast(`${r.inId} is already in Bay ${bayOf(r.inId).n}`);
     if (r.inId === r.c.id) return toast('Incoming container is the same as the outgoing one');
   }
-  if (r.outTare == null) return toast(`No tare for ${r.c.id} — add its prefix tare in Containers first`);
+  if (r.outTare == null) return toast(`No tare for ${r.c.id} — add its prefix tare on the Tares & Trucks tab first`);
   if (r.weighOut == null && !confirm('No 2nd weigh entered, so there is no actual net weight yet.\n\nComplete the swap anyway? You can add the weigh-out later in History.')) return;
   const now = new Date().toISOString();
   S.history.unshift({
@@ -1368,7 +1370,7 @@ function renderBackup(){
       ${CLOUD ? `<p>Data is shared live through Firebase between everyone signed in. A downloaded backup is still a good idea now and then. <b>Restore</b> and <b>Reset</b> change the data for <b>everyone</b>.</p>`
               : `<p>Everything is saved in <b>this browser on this device</b>. Download a backup regularly, and use it to move the data to another PC or tablet.</p>`}
       <div class="row">
-        <button class="primary" onclick="download('containertracks-backup-${new Date().toISOString().slice(0,10)}.json', JSON.stringify(S,null,2), 'application/json')">Download backup</button>
+        <button class="primary" onclick="download('mrf-life-backup-${new Date().toISOString().slice(0,10)}.json', JSON.stringify(S,null,2), 'application/json')">Download backup</button>
         <label class="btn" style="margin:0;color:var(--ink);font-size:15px">Restore from backup…<input type="file" accept=".json,application/json" onchange="restore(this.files[0])" class="hidden"></label>
         <button class="danger" onclick="resetAll()">Reset everything</button>
       </div>
@@ -1406,7 +1408,7 @@ function restore(file){
       if (!confirm('Replace all current data with this backup?')) return;
       S = Object.assign(defaults(), d); for (let i = S.bays.length; i < BAY_COUNT; i++) S.bays.push(newBay(i+1));
       save(); render(); toast('Backup restored');
-    } catch(e){ toast('That file is not a ContainerTracks backup'); }
+    } catch(e){ toast('That file is not an MRF Life backup'); }
   };
   r.readAsText(file);
 }
