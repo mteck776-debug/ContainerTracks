@@ -254,7 +254,7 @@ function orderSeq(m, no){
   return /^\d+$/.test(n) ? parseInt(n, 10) : null;
 }
 const estNet = b =>(b.bales||0) * (mat(b.material).baleKg||0);
-const spares = () => S.containers.filter(c => !bayOf(c.id));
+const spares = (forBay) => S.containers.filter(c => !bayOf(c.id) && !S.bays.some(b => b.visit && b.visit.inId === c.id && b.n !== forBay));
 
 /* ---------- prefix tares ----------
    Longest saved prefix that the container number starts with wins,
@@ -416,8 +416,9 @@ function bayCard(b){
         <dt class="muted">Avg per bale (${esc(m.code)})</dt><dd class="muted">${bt(m.baleKg)}</dd>
       </dl>
       ${b.booking ? `<div class="booked">🚚 <b>${esc(b.booking.orderNo || 'no order no.')}</b><span class="muted" style="margin-left:auto">${new Date(b.booking.at).toLocaleDateString('en-AU',{day:'numeric',month:'short'})}</span></div>` : ''}
+      ${b.visit ? `<div class="booked" style="background:#fff3e0;border-color:#f3c27f;color:#8a4b08">🚛 <span><b>${esc(b.visit.rego || 'Truck')}</b> on site · in ${kg(b.visit.weighIn)}</span><a href="#" class="muted" style="margin-left:auto" onclick="cancelVisit(${b.n});return false" title="Clear saved weigh-in">✕</a></div>` : ''}
       <div class="actions">
-        <button class="primary" onclick="openSwap(${b.n})">Truck swap</button>
+        <button class="primary" onclick="openSwap(${b.n})">${b.visit ? 'Weigh out' : 'Truck swap'}</button>
         <button class="book ${b.booking?'done':''}" onclick="openBook(${b.n})">${b.booking ? 'Booked ✓' : 'Book'}</button>
         <button onclick="openPlace(${b.n})">Change</button>
       </div>
@@ -567,70 +568,78 @@ function doPlace(n){
 }
 
 /* =========================================================
-   TRUCK SWAP — the weight prediction
-   Truck arrives with an empty:   weigh-in  = truck tare + empty tare
-                                  truck tare = weigh-in − empty tare
-   Truck leaves with the full:    weigh-out ≈ truck tare + full tare + est. load
+   TRUCK SWAP — weighed in, weighed out
+   Truck tare        = weigh-in − tare of the empty it brought (0 if none)
+   Net material out  = weigh-out − truck tare − tare of the full container
+                     = weigh-out − weigh-in + empty tare − full tare
+   The bale count × avg bale weight is only shown as a cross-check
+   (and as an expected weigh-out while the truck is still on site).
    ========================================================= */
 let SW = null;
 function openSwap(n){
   const full = S.bays.filter(b => b.containerId);
   if (!full.length) return toast('No containers in the yard to swap out');
-  n = n ?? full[0].n;
+  n = n ?? (full.find(b => b.visit) || full[0]).n;
   const b = bay(n); if (!b.containerId) return openPlace(n);
-  const c = cont(b.containerId), m = mat(b.material);
+  const c = cont(b.containerId), m = mat(b.material), v = b.visit;
   SW = { n };
-  const spareOpts = spares().map(x => `<option value="${esc(x.id)}">${esc(x.id)} — tare ${tn(tareOf(x))}</option>`).join('');
+  const spareOpts = spares(+n).map(x => `<option value="${esc(x.id)}">${esc(x.id)} — tare ${kg(tareOf(x))}</option>`).join('');
   const regos = Object.keys(S.trucks).sort().map(r => `<option value="${esc(r)}">`).join('');
+  const noSpare = !spareOpts && !v;
 
-  openDlg('Truck swap', `
+  openDlg(v ? `Weigh out — Bay ${n}` : 'Truck swap', `
     <div class="row" style="margin-bottom:10px">
-      <div><label>Bay going out</label>
-        <select onchange="openSwap(+this.value)">${full.map(x => `<option value="${x.n}" ${x.n===+n?'selected':''}>Bay ${x.n} — ${esc(x.containerId)} (${esc(x.material)}, ${x.bales} bales)</option>`).join('')}</select>
+      <div><label>Bay being collected</label>
+        <select onchange="openSwap(+this.value)">${full.map(x => `<option value="${x.n}" ${x.n===+n?'selected':''}>Bay ${x.n} — ${esc(x.containerId)} (${esc(x.material)}, ${x.bales} bales)${x.visit?' · truck on site':''}</option>`).join('')}</select>
       </div>
     </div>
     <div class="cols">
       <fieldset>
-        <legend>Going out — full</legend>
-        ${b.booking ? `<div class="booked" style="margin-bottom:6px">🚚 Booked <b>${esc(b.booking.orderNo||'')}</b></div>` : '<div class="note" style="margin:0 0 6px">Not booked yet</div>'}
+        <legend>Truck coming in</legend>
+        <label>Truck rego</label>
+        <input id="sw-rego" list="sw-regos" placeholder="e.g. 123ABC" oninput="swCalc()" autocomplete="off" value="${esc(v?.rego||'')}">
+        <datalist id="sw-regos">${regos}</datalist>
+        <label>Empty container it brought</label>
+        <select id="sw-in" onchange="$('#sw-new').classList.toggle('hidden', this.value!=='__new'); swCalc()">
+          <option value="">— none, truck came in bare —</option>
+          ${spareOpts}
+          <option value="__new" ${noSpare?'selected':''}>+ New container…</option>
+        </select>
+        <div id="sw-new" class="${noSpare?'':'hidden'}">${newContFields('sw-new')}</div>
+        <label>Material to load in the empty</label>
+        <select id="sw-mat">${matOptions(v?.nextMat || b.material)}</select>
+      </fieldset>
+      <fieldset>
+        <legend>Leaving — full</legend>
+        ${b.booking ? `<div class="booked" style="margin-bottom:6px">🚚 <b>${esc(b.booking.orderNo||'')}</b></div>` : '<div class="note" style="margin:0 0 6px">Not booked yet</div>'}
         <div class="cid">${esc(c.id)}</div>
-        <div class="muted">Tare ${tareOf(c)!=null ? kg(tareOf(c)) + tareSrc(c) : '<span class="neg">unknown</span>'} · <span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span> ${bt(m.baleKg)} avg/bale</div>
+        <div class="muted">Tare ${tareOf(c)!=null ? kg(tareOf(c)) + tareSrc(c) : '<span class="neg">unknown</span>'} · <span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span></div>
         <label>Bales in container</label>
         <input id="sw-bales" type="number" min="0" inputmode="numeric" value="${b.bales}" oninput="swCalc()">
         <div id="sw-tgt" class="muted" style="margin-top:6px"></div>
       </fieldset>
-      <fieldset>
-        <legend>Coming in — empty</legend>
-        <label>Truck rego</label>
-        <input id="sw-rego" list="sw-regos" placeholder="e.g. 123ABC" oninput="swCalc()" autocomplete="off">
-        <datalist id="sw-regos">${regos}</datalist>
-        <label>Empty container on the truck</label>
-        <select id="sw-in" onchange="$('#sw-new').classList.toggle('hidden', this.value!=='__new'); swCalc()">
-          <option value="">— none, truck came in bare —</option>
-          ${spareOpts}
-          <option value="__new" ${spareOpts?'':'selected'}>+ New container…</option>
-        </select>
-        <div id="sw-new" class="${spareOpts?'hidden':''}">${newContFields('sw-new')}</div>
-        <label>Weigh-in gross (truck + empty) — tonnes</label>
-        <input id="sw-win" type="number" step="any" inputmode="decimal" oninput="swCalc()" placeholder="e.g. 16.20">
-        <label>Material to load in the empty</label>
-        <select id="sw-mat">${matOptions(b.material)}</select>
-      </fieldset>
     </div>
-    <div class="calc" id="sw-calc"></div>
-    <div class="row" style="margin-top:12px">
-      <div><label>Actual weigh-out — tonnes (optional, can add later in History)</label>
-      <input id="sw-out" type="number" step="any" inputmode="decimal" oninput="swCalc()" placeholder="e.g. 36.55"></div>
-    </div>
-    <div id="sw-actual"></div>`,
-    `<button onclick="closeDlg()">Cancel</button><button class="primary" onclick="doSwap()">Confirm swap</button>`);
+    <fieldset style="margin-top:14px">
+      <legend>Weighbridge</legend>
+      <div class="cols">
+        <div><label>1st weigh — truck in${v ? ` <span class="muted">(saved ${fmtDate(v.at)})</span>` : ''} (t)</label>
+          <input id="sw-win" type="number" step="any" inputmode="decimal" oninput="swCalc()" placeholder="e.g. 18.60" value="${v?.weighIn!=null ? tv(v.weighIn) : ''}" style="font-size:20px;font-weight:700"></div>
+        <div><label>2nd weigh — truck out, loaded (t)</label>
+          <input id="sw-out" type="number" step="any" inputmode="decimal" oninput="swCalc()" placeholder="e.g. 38.50" style="font-size:20px;font-weight:700"></div>
+      </div>
+    </fieldset>
+    <div class="calc" id="sw-calc"></div>`,
+    `<button onclick="closeDlg()" style="margin-right:auto">Cancel</button>
+     <button id="sw-later" onclick="saveVisit()">Save weigh-in, weigh out later</button>
+     <button class="primary" onclick="doSwap()">Complete swap</button>`);
+  if (v){ const sel = $('#sw-in'); sel.value = v.inId || ''; if (sel.value !== (v.inId || '')) sel.value = ''; }
   swCalc();
 }
 
 function swRead(){
   const b = bay(SW.n), c = cont(b.containerId), m = mat(b.material);
   const bales = Math.max(0, Math.round(num($('#sw-bales').value) ?? 0));
-  const net = bales * m.baleKg;
+  const est = bales * m.baleKg;
   const sel = $('#sw-in').value;
   let inId = null, inTare = 0, isNew = false, newRec = null;
   if (sel === '__new'){
@@ -641,53 +650,85 @@ function swRead(){
   else if (sel){ inId = sel; inTare = tareOf(cont(sel)); }
   const outTare = tareOf(c);
   const rego = normRego($('#sw-rego').value);
-  const weighIn = toKg($('#sw-win').value);
+  const weighIn = toKg($('#sw-win').value), weighOut = toKg($('#sw-out').value);
   let truckTare = null, src = '';
   if (weighIn!=null && inTare!=null){ truckTare = weighIn - inTare; src = 'in'; }
   else if (rego && S.trucks[rego]){ truckTare = S.trucks[rego].tare; src = 'known'; }
-  const predicted = (truckTare!=null && outTare!=null) ? truckTare + outTare + net : null;
-  const actualOut = toKg($('#sw-out').value);
-  return { b, c, m, bales, net, inId, inTare, isNew, newRec, outTare, rego, weighIn, truckTare, src, predicted, actualOut };
+  const expectedOut = (truckTare!=null && outTare!=null) ? truckTare + outTare + est : null;
+  const net = (weighOut!=null && truckTare!=null && outTare!=null) ? weighOut - truckTare - outTare : null;
+  return { b, c, m, bales, est, inId, inTare, isNew, newRec, outTare, rego, weighIn, weighOut, truckTare, src, expectedOut, net };
 }
 
 function swCalc(){
   const r = swRead();
   const tgt = targetOf(r.b), d = r.bales - tgt;
   $('#sw-tgt').innerHTML = !tgt ? 'No target set' : d < 0 ? `<span class="warn">${-d} bales short of the ${tgt} target</span>` : d === 0 ? `<span class="pos">✓ On target (${tgt})</span>` : `<span class="warn">${d} over the ${tgt} target</span>`;
-  const rows = [];
-  if (r.src === 'in'){
-    rows.push(['', 'Weigh-in (truck + empty)', kg(r.weighIn)]);
-    rows.push(['−', `Empty container tare${r.inId?` (${esc(r.inId)})`:''}`, kg(r.inTare)]);
-    rows.push(['=', 'Truck tare', kg(r.truckTare), 'sub']);
-  } else if (r.src === 'known'){
-    rows.push(['', `Truck tare — last known for ${esc(r.rego)} (${fmtDate(S.trucks[r.rego].updated)})`, kg(r.truckTare), 'sub']);
-  } else {
-    rows.push(['', 'Truck tare', '<span class="muted">enter weigh-in</span>', 'sub']);
-  }
-  rows.push(['+', `Full container tare — ${esc(r.c.id)}${esc(tareSrc(r.c))}`, kg(r.outTare)]);
-  rows.push(['+', `Est. load (${r.bales} × ${bt(r.m.baleKg)} ${esc(r.m.code)})`, kg(r.net)]);
-  $('#sw-calc').innerHTML = `
-    <div class="row" style="justify-content:space-between;align-items:center">
-      <table style="width:auto">${rows.map(([op,l,v,cls]) => `<tr class="${cls||''}"><td class="op">${op}</td><td>${l}</td><td class="n">${v}</td></tr>`).join('')}
-        <tr class="total"><td class="op">=</td><td>Predicted weigh-out</td><td class="n">${kg(r.predicted)}</td></tr></table>
-      <div style="text-align:right"><div class="muted">Expect on the weighbridge</div><div class="predict">${r.predicted!=null ? kg(r.predicted) : '—'}</div></div>
-    </div>
-    ${r.weighIn!=null && r.inTare!=null && r.weighIn < r.inTare ? '<div class="note">Weigh-in is less than the empty container tare — check the numbers.</div>' : ''}
-    ${r.weighIn==null && !r.src ? '<div class="note">Enter the weigh-in to work out the truck tare' + (Object.keys(S.trucks).length ? ', or pick a known truck rego.' : '.') + '</div>' : ''}`;
+  $('#sw-later').classList.toggle('hidden', r.weighOut != null);
 
-  let a = '';
-  if (r.actualOut!=null && r.truckTare!=null && r.outTare!=null){
-    const actNet = r.actualOut - r.truckTare - r.outTare;
-    const per = r.bales ? actNet / r.bales : null;
-    const diff = r.actualOut - r.predicted;
-    a = `<div class="calc"><table style="width:auto">
-      <tr><td>Actual load (weigh-out − truck tare − container tare)</td><td class="n"><b>${kg(actNet)}</b></td></tr>
-      <tr><td>Actual average per bale</td><td class="n"><b>${per!=null ? bt(per) : '—'}</b> <span class="muted">(using ${bt(r.m.baleKg)})</span></td></tr>
-      <tr><td>Difference from prediction</td><td class="n ${Math.abs(diff)>1000?'neg':'pos'}"><b>${signed(diff)}</b> <span class="muted">(${(diff/r.predicted*100).toFixed(1)}%)</span></td></tr>
-    </table></div>`;
+  const row = (op, l, v, cls='') => `<tr class="${cls}"><td class="op">${op}</td><td>${l}</td><td class="n">${v}</td></tr>`;
+  const outTareRow = row('−', `Full container tare — ${esc(r.c.id)}${esc(tareSrc(r.c))}`, kg(r.outTare));
+  let html = '';
+
+  if (r.net != null){
+    /* both weighings in: this is the real figure */
+    let rows = row('', '2nd weigh — truck out, loaded', kg(r.weighOut));
+    if (r.src === 'in'){
+      rows += row('−', '1st weigh — truck in', kg(r.weighIn));
+      if (r.inId) rows += row('+', `Empty container tare it brought — ${esc(r.inId)}`, kg(r.inTare));
+    } else {
+      rows += row('−', `Truck tare — last known for ${esc(r.rego)} <span class="muted">(no 1st weigh entered)</span>`, kg(r.truckTare));
+    }
+    rows += outTareRow;
+    const per = r.bales ? r.net / r.bales : null, diff = r.net - r.est;
+    html = `
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <table style="width:auto">${rows}${row('=', 'Net weight of material', kg(r.net), 'total')}</table>
+        <div style="text-align:right"><div class="muted">Net ${esc(r.m.code)} going out</div><div class="predict">${kg(r.net)}</div></div>
+      </div>
+      <div class="muted" style="margin-top:8px">Cross-check: ${r.bales} bales × ${bt(r.m.baleKg)} = ${kg(r.est)} estimated
+        (<span class="${Math.abs(diff)>1000?'neg':'pos'}">${signed(diff)}</span>)${per!=null ? ` · actual ${bt(per)} per bale` : ''}</div>
+      ${r.net <= 0 ? '<div class="note">Net weight is zero or negative — check the weighings and tares.</div>' : ''}`;
+  } else {
+    /* still waiting for the 2nd weigh */
+    let rows = '';
+    if (r.src === 'in'){
+      rows += row('', '1st weigh — truck in', kg(r.weighIn));
+      rows += row('−', `Empty container tare${r.inId ? ` — ${esc(r.inId)}` : ' (came in bare)'}`, kg(r.inTare));
+      rows += row('=', 'Truck tare', kg(r.truckTare), 'sub');
+    } else if (r.src === 'known'){
+      rows += row('', `Truck tare — last known for ${esc(r.rego)} (${fmtDate(S.trucks[r.rego].updated)})`, kg(r.truckTare), 'sub');
+    } else {
+      rows += row('', 'Truck tare', '<span class="muted">enter the 1st weigh</span>', 'sub');
+    }
+    rows += row('+', `Full container tare — ${esc(r.c.id)}${esc(tareSrc(r.c))}`, kg(r.outTare));
+    rows += row('+', `Bale estimate (${r.bales} × ${bt(r.m.baleKg)})`, kg(r.est));
+    html = `
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <table style="width:auto">${rows}${row('≈', 'Expected 2nd weigh', kg(r.expectedOut), 'total')}</table>
+        <div style="text-align:right"><div class="muted">Waiting for 2nd weigh<br>expect about</div><div class="predict" style="color:var(--muted)">${r.expectedOut!=null ? kg(r.expectedOut) : '—'}</div></div>
+      </div>
+      <div class="muted" style="margin-top:8px">Enter the 2nd weigh to get the actual net weight.</div>`;
   }
-  $('#sw-actual').innerHTML = a;
+  if (r.weighIn!=null && r.inTare!=null && r.weighIn < r.inTare) html += '<div class="note">1st weigh is less than the empty container tare — check the numbers.</div>';
+  if (r.outTare == null) html += `<div class="note">No tare for ${esc(r.c.id)} — add its prefix tare on the Containers tab.</div>`;
+  $('#sw-calc').innerHTML = html;
 }
+
+/* truck weighed in but not out yet: park it on the bay */
+function saveVisit(){
+  const r = swRead();
+  if (r.weighIn == null) return toast('Enter the 1st weigh');
+  if (r.isNew){
+    if (typeof r.newRec === 'string') return toast(r.newRec);
+    if (bayOf(r.inId)) return toast(`${r.inId} is already in Bay ${bayOf(r.inId).n}`);
+    commitNewCont(r.newRec);
+  }
+  r.b.visit = { rego: r.rego, inId: r.inId, weighIn: r.weighIn, nextMat: $('#sw-mat').value, at: new Date().toISOString() };
+  r.b.bales = r.bales;
+  if (r.rego && r.truckTare!=null) S.trucks[r.rego] = { tare: r.truckTare, updated: r.b.visit.at };
+  save(); closeDlg(); render(); toast(`Weigh-in saved — Bay ${r.b.n} waiting for weigh-out`);
+}
+function cancelVisit(n){ if (!confirm('Clear the saved weigh-in for this bay?')) return; bay(n).visit = null; save(); render(); }
 
 function doSwap(){
   const r = swRead();
@@ -697,13 +738,14 @@ function doSwap(){
     if (r.inId === r.c.id) return toast('Incoming container is the same as the outgoing one');
   }
   if (r.outTare == null) return toast(`No tare for ${r.c.id} — add its prefix tare in Containers first`);
+  if (r.weighOut == null && !confirm('No 2nd weigh entered, so there is no actual net weight yet.\n\nComplete the swap anyway? You can add the weigh-out later in History.')) return;
   const now = new Date().toISOString();
   S.history.unshift({
     id: uid(), date: now, bay: r.b.n, rego: r.rego || '',
     orderNo: r.b.booking?.orderNo || '',
-    outId: r.c.id, outTare: r.outTare, material: r.m.code, bales: r.bales, target: targetOf(r.b) || null, baleKg: r.m.baleKg, estNet: r.net,
-    inId: r.inId, inTare: r.inTare || 0, weighIn: r.weighIn,
-    truckTare: r.truckTare, predicted: r.predicted, actualOut: r.actualOut, startedAt: r.b.startedAt
+    outId: r.c.id, outTare: r.outTare, material: r.m.code, bales: r.bales, target: targetOf(r.b) || null, baleKg: r.m.baleKg, estNet: r.est,
+    inId: r.inId, inTare: r.inTare || 0, weighIn: r.weighIn, weighInAt: r.b.visit?.at || now,
+    truckTare: r.truckTare, predicted: r.expectedOut, actualOut: r.weighOut, startedAt: r.b.startedAt
   });
   if (r.rego && r.weighIn!=null && r.truckTare!=null) S.trucks[r.rego] = { tare: r.truckTare, updated: now };
   r.c.outSince = now;
@@ -712,9 +754,9 @@ function doSwap(){
     delete ic.outSince;
   }
   const b = r.b;
-  b.containerId = r.inId; b.material = $('#sw-mat').value; b.bales = 0; b.startedAt = null; b.log = []; b.booking = null;
+  b.containerId = r.inId; b.material = $('#sw-mat').value; b.bales = 0; b.startedAt = null; b.log = []; b.booking = null; b.visit = null;
   save(); closeDlg(); render();
-  toast(`${r.c.id} dispatched${r.inId ? ` · ${r.inId} now in Bay ${b.n}` : ''}`);
+  toast(r.net != null ? `${r.c.id} out · net ${kg(r.net)}` : `${r.c.id} dispatched — add the weigh-out in History`);
 }
 
 /* =========================================================
@@ -890,19 +932,19 @@ function renderHistory(){
         <h2 style="margin:0">Dispatched loads</h2>
         <button onclick="exportCSV()" ${h.length?'':'disabled'}>Export CSV</button>
       </div>
-      <p class="muted">Add the actual weigh-out when the docket comes through — the actual load and tonnes per bale are worked out from it and feed the learned averages on Materials.</p>
+      <p class="muted"><b>Net (weighed)</b> = 2nd weigh − 1st weigh + empty container tare − full container tare. If a load is missing its 2nd weigh, click Edit to add it. Weighed loads feed the learned bale averages on Materials.</p>
       <div class="tbl-wrap"><table>
         <tr><th>Date</th><th>Bay</th><th>Out</th><th>Mat.</th><th class="n">Bales / target</th><th class="n">Est. load</th><th>Order no.</th><th>Truck</th><th>In</th>
-            <th class="n">Truck tare</th><th class="n">Predicted out</th><th class="n">Actual out</th><th class="n">Actual load</th><th class="n">t/bale</th><th class="n">Diff</th><th></th></tr>
+            <th class="n">1st weigh</th><th class="n">2nd weigh</th><th class="n">Net (weighed)</th><th class="n">t/bale</th><th class="n">vs bale est.</th><th></th></tr>
         ${h.length ? h.map(x => { const c = hCalc(x); return `<tr>
           <td>${fmtDate(x.date)}</td><td>${x.bay}</td><td><b>${esc(x.outId)}</b></td>
           <td><span class="chip" style="--mc:${esc(mat(x.material).color)}">${esc(x.material)}</span></td>
           <td class="n">${x.bales}${x.target ? `<span class="muted"> / ${x.target}</span>` : ''}</td><td class="n">${kg(x.estNet)}</td><td>${esc(x.orderNo||'—')}</td><td>${esc(x.rego||'—')}</td><td>${esc(x.inId||'—')}</td>
-          <td class="n">${kg(c.truckTare)}</td><td class="n"><b>${kg(c.predicted)}</b></td><td class="n">${kg(x.actualOut)}</td>
-          <td class="n">${kg(c.actualNet)}</td><td class="n">${c.perBale!=null?bt(c.perBale):'—'}</td>
-          <td class="n ${c.diff==null?'':Math.abs(c.diff)>1000?'neg':'pos'}">${c.diff!=null?signed(c.diff):'—'}</td>
+          <td class="n">${kg(x.weighIn)}</td><td class="n">${kg(x.actualOut)}</td>
+          <td class="n">${c.actualNet!=null ? `<b>${kg(c.actualNet)}</b>` : '<span class="warn">needs 2nd weigh</span>'}</td><td class="n">${c.perBale!=null?bt(c.perBale):'—'}</td>
+          <td class="n ${c.actualNet==null?'':Math.abs(c.actualNet-x.estNet)>1000?'neg':'pos'}">${c.actualNet!=null?signed(c.actualNet-x.estNet):'—'}</td>
           <td><button class="small" onclick="editHist('${x.id}')">Edit</button></td>
-        </tr>`; }).join('') : `<tr><td colspan="16" class="muted">No loads dispatched yet. Use <b>Truck swap</b> on a bay.</td></tr>`}
+        </tr>`; }).join('') : `<tr><td colspan="15" class="muted">No loads dispatched yet. Use <b>Truck swap</b> on a bay.</td></tr>`}
       </table></div>
     </div>`;
 }
@@ -913,10 +955,10 @@ function editHist(id){
       <div>
         <label>Truck rego</label><input id="eh-rego" value="${esc(x.rego||'')}" style="width:100%">
         <label>Bales</label><input id="eh-bales" type="number" value="${x.bales}" style="width:100%">
-        <label>Weigh-in gross (t)</label><input id="eh-in" type="number" step="any" value="${tv(x.weighIn)}" style="width:100%">
+        <label>1st weigh — truck in (t)</label><input id="eh-in" type="number" step="any" value="${tv(x.weighIn)}" style="width:100%">
       </div>
       <div>
-        <label>Actual weigh-out gross (t)</label><input id="eh-out" type="number" step="any" value="${tv(x.actualOut)}" style="width:100%">
+        <label>2nd weigh — truck out, loaded (t)</label><input id="eh-out" type="number" step="any" value="${tv(x.actualOut)}" style="width:100%">
         <label>Empty container tare (${esc(x.inId||'none')}) t</label><input id="eh-intare" type="number" step="any" value="${tv(x.inTare||0)}" style="width:100%">
         <label>Full container tare (${esc(x.outId)}) t</label><input id="eh-outtare" type="number" step="any" value="${tv(x.outTare)}" style="width:100%">
       </div>
@@ -938,8 +980,8 @@ function saveHist(id){
 function delHist(id){ if (!confirm('Delete this load from history?')) return; S.history = S.history.filter(h => h.id!==id); save(); closeDlg(); render(); }
 function exportCSV(){
   const T = v => v==null || v==='' ? '' : (v/1000).toFixed(3);
-  const head = ['Date','Bay','Container out','Out tare (t)','Material','Bales','Target bales','Avg t/bale used','Est load (t)','Linfox order no.','Truck rego','Container in','In tare (t)','Weigh-in (t)','Truck tare (t)','Predicted out (t)','Actual out (t)','Actual load (t)','Actual t/bale','Diff (t)'];
-  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, T(x.outTare), x.material, x.bales, x.target??'', T(x.baleKg), T(x.estNet), x.orderNo||'', x.rego, x.inId||'', T(x.inTare), T(x.weighIn), T(c.truckTare), T(c.predicted), T(x.actualOut), T(c.actualNet), T(c.perBale), T(c.diff)]; });
+  const head = ['Date','Bay','Container out','Out tare (t)','Material','Bales','Target bales','Avg t/bale used','Est load (t)','Linfox order no.','Truck rego','Container in','In tare (t)','1st weigh (t)','Truck tare (t)','Expected 2nd weigh (t)','2nd weigh (t)','Net weighed (t)','Actual t/bale','Net vs bale est (t)'];
+  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, T(x.outTare), x.material, x.bales, x.target??'', T(x.baleKg), T(x.estNet), x.orderNo||'', x.rego, x.inId||'', T(x.inTare), T(x.weighIn), T(c.truckTare), T(c.predicted), T(x.actualOut), T(c.actualNet), T(c.perBale), T(c.actualNet!=null ? c.actualNet - x.estNet : null)]; });
   const csv = [head, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   download(`container-loads-${new Date().toISOString().slice(0,10)}.csv`, csv, 'text/csv');
 }

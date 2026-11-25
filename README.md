@@ -15,10 +15,10 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 |---|---|
 | **Yard** | Six bays. Each shows its container number, tare, material, bale count (−/+1/+5 or type it in), estimated load and gross. |
 | **Book** | Asks whether the container is already booked. If **No**: works out the next Linfox order number for that material, copies it, and opens the [Linfox Customer Portal](https://portal.linfox.com/). Click **Mark as booked** once it's submitted. If **Yes**: record the order number used. The bay shows the booking until the truck swap, and the order number goes into History. |
-| **Truck swap** | Records a full container leaving and the empty one replacing it, and predicts the weigh-out. |
+| **Truck swap** | Records the 1st weigh (truck in) and 2nd weigh (truck out, loaded) and works out the net weight of material. The empty container takes over the bay. |
 | **Containers & Trucks** | **Tare by prefix** list (e.g. `AFDB → 4.60 t`), the container register, and the trucks the app has learned. |
 | **Materials** | OCC, MXP, ALI, HDPE C, Steel, each with an average tonnes per bale and a **target bales** default. You can add more. |
-| **History** | Every dispatched load. Add the actual weigh-out here to see actual load, actual tonnes per bale and how far off the prediction was. Exports to CSV. |
+| **History** | Every dispatched load with both weighings, the net weight, tonnes per bale and the difference from the bale estimate. Exports to CSV. |
 | **Backup** | Download or restore a JSON backup. |
 
 ## Target bales
@@ -49,20 +49,24 @@ Save one tare per container prefix, for example `AFDB → 4.60 t`. When a contai
 - Typing a tare for one container overrides the prefix tare for that container only.
 - If a new container's prefix isn't on the list, enter its tare once and tick **Save as the tare for prefix XXXX**. After that, any container with that prefix fills its tare in automatically.
 
-## How the weigh-out prediction works
+## Truck swap: net weight from the two weighings
+
+The truck is weighed coming in (with an empty, or bare) and weighed going out with the loaded container:
 
 ```
-Truck arrives with empty:  weigh-in   = truck tare + empty container tare
-So:                        truck tare = weigh-in − empty container tare
-
-Truck leaves with full:    predicted weigh-out = truck tare
-                                               + full container tare
-                                               + bales × avg tonnes per bale
+Net material = 2nd weigh (out, loaded)
+             − 1st weigh (in)
+             + tare of the empty container it brought in   (nothing if it came in bare)
+             − tare of the full container it took
 ```
 
-If you enter a truck rego the app remembers that truck's tare. When the same truck comes back, choosing its rego gives a prediction before it reaches the bridge.
+Example: 38.50 out − 18.60 in + 4.60 empty − 4.60 full = **19.90 t net**.
 
-Once a load has an actual weigh-out, the app works out the real average tonnes per bale for that material. The **Materials** tab shows it under *Learned*, and **Use** makes it the new average.
+- **Save weigh-in, weigh out later:** after the 1st weigh, save it. The bay shows *🚛 rego on site* and its button changes to **Weigh out**. Open it at the 2nd weigh, enter the weight, and click **Complete swap**.
+- While the truck is on site, the app shows an *expected* 2nd weigh based on the bale count, so you can spot anything way off.
+- The bale estimate stays on screen as a cross-check, and each weighed load teaches the app the real tonnes per bale (see the Materials tab).
+- A load completed without a 2nd weigh shows *needs 2nd weigh* in History. Click **Edit** to add it.
+- Each truck's tare (1st weigh − empty tare) is remembered by rego.
 
 ## Data (Firebase)
 
