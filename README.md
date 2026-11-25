@@ -18,10 +18,8 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 | **Day Sheet** | Trucks (e.g. 9 axle B-doubles) loaded with bales. Add the company, commodity and truck setup. When the truck arrives, add its rego and tare, and the sheet shows how many tonnes and **how many bales** it can take. Add bales loaded and the weigh-out to get the net. You can plan future loads on any date, see them under **Upcoming loads**, and print the sheet. Company names and truck tares are remembered. |
 | **CRS Lots** | Containers for Change lots (CRS ALI, CRS PET Clear …) by lot number (e.g. `#L51528`), with bales and total weight. Lots move from **On auction** to **Sold – awaiting transport**, then **Transport booked** (company and pickup date), then **Collected**. Sold lots show on the Day Sheet as *awaiting transport* with bale totals per commodity. Booked transport becomes a Day Sheet pickup on its date, and entering the weigh-out there marks the lot collected. |
 | **Truck swap** | Records the 1st weigh (truck in) and 2nd weigh (truck out, loaded) and works out the net weight of material. The empty container takes over the bay. |
-| **Tares & Trucks** | **Tare by prefix** list (e.g. `AFDB → 4.60 t`), the container register, and the trucks the app has learned. |
-| **Materials** | OCC, MXP, ALI, HDPE C, Steel, each with an average tonnes per bale and a **target bales** default. You can add more. |
+| **Setup** | All the background data on one page, with a jump menu at the top: **Materials** (bale weights, targets, delivery location), **CRS commodities**, **Delivery locations** (add more, set delivery instructions, upload weight declaration forms), **Linfox bookings** (connote sequences, details that go on every booking), **Container tares** by prefix, **Container register**, **Vehicles** (rego, tare, setup), **Truck setups** (max gross, safety buffer), **Companies** and **Backup**. |
 | **History** | Every dispatched load with both weighings, the net weight, tonnes per bale and the difference from the bale estimate. Exports to CSV. |
-| **Backup** | Download or restore a JSON backup. |
 
 ## Target bales
 
@@ -44,7 +42,7 @@ The default max gross figures are the general mass limits: 9 axle B-double 62.5 
 
 ## Linfox order numbers
 
-Each material has its own order number sequence. You can edit them on the **Materials** tab:
+Each material has its own order number sequence. You can edit them in **Setup**:
 
 | Material | Format | Last used (starting point) |
 |---|---|---|
@@ -62,9 +60,9 @@ The next booking uses *last used + 1*.
 - Product description: `48 x MRF Aluminium Bales`. Product type is 12.2M/40" Container General, quantity 1, weight 18000 kg (Linfox minimum charge).
 - Delivery goes to **Genuine Recycling Group** with no instructions, except **Mixed Paper**, which goes to **Visy** with *Booking required, Driver must quote - VWI 18811638*.
 
-**Weight declaration PDFs.** On the **Materials** tab, upload a fillable PDF for each delivery location (Genuine Recycling, Visy, …) and choose what goes in each of its boxes: container number, tare, today's date, bale count, description, connote number or commodity. Bookings to that location then get a **Weight declaration PDF** button that fills it in, ready to print. Forms are stored in the app's Firebase database, never in this public repo.
+**Weight declaration PDFs.** On the **Setup** tab, upload a fillable PDF for each delivery location (Genuine Recycling, Visy, …) and choose what goes in each of its boxes: container number, tare, today's date, bale count, description, connote number or commodity. Bookings to that location then get a **Weight declaration PDF** button that fills it in, ready to print. Forms are stored in the app's Firebase database, never in this public repo.
 
-You can change all of these on the Materials tab: name on booking, delivery location and instructions for each material, plus the booking details that are the same every time (email, phone, depot and so on). If you type a number that's further along the sequence, the sequence jumps forward to match.
+You can change all of these in Setup: name on booking, delivery location and instructions for each material, plus the booking details that are the same every time (email, phone, depot and so on). If you type a number that's further along the sequence, the sequence jumps forward to match.
 
 ## Tare by prefix
 
@@ -89,7 +87,7 @@ Example: 38.50 out − 18.60 in + 4.60 empty − 4.60 full = **19.90 t net**.
 
 - **Save weigh-in, weigh out later:** after the 1st weigh, save it. The bay shows *🚛 rego on site* and its button changes to **Weigh out**. Open it at the 2nd weigh, enter the weight, and click **Complete swap**.
 - While the truck is on site, the app shows an *expected* 2nd weigh based on the bale count, so you can spot anything way off.
-- The bale estimate stays on screen as a cross-check, and each weighed load teaches the app the real tonnes per bale (see the Materials tab).
+- The bale estimate stays on screen as a cross-check, and each weighed load teaches the app the real tonnes per bale (see Setup).
 - A load completed without a 2nd weigh shows *needs 2nd weigh* in History. Click **Edit** to add it.
 - Each truck's tare (1st weigh − empty tare) is remembered by rego.
 
