@@ -139,7 +139,8 @@ const defaults = () => ({
     { code:'HDPE C', name:'HDPE Colour',  baleKg:300, typical:50, color:'#1f9a68' },
     { code:'STEEL',  name:'Steel',        baleKg:450, typical:40, color:'#3d4652' },
   ],
-  containers: [],          // {id, tare, notes, outSince}
+  prefixes: [],            // {prefix, tare(kg), notes} — container number prefix -> tare
+  containers: [],          // {id, tare|null (null = use prefix tare), notes, outSince}
   bays: Array.from({length:BAY_COUNT}, (_,i) => newBay(i+1)),
   trucks: {},              // rego -> {tare, updated}
   history: []              // dispatched loads
@@ -176,6 +177,59 @@ const cont = id => S.containers.find(c => c.id === id);
 const bayOf = id => S.bays.find(b => b.containerId === id);
 const estNet = b => (b.bales||0) * (mat(b.material).baleKg||0);
 const spares = () => S.containers.filter(c => !bayOf(c.id));
+
+/* ---------- prefix tares ----------
+   Longest saved prefix that the container number starts with wins,
+   so "AFDB" and "AFDBX" can both exist. */
+const leadLetters = id => (normId(id).match(/^[A-Z]+/) || [''])[0].slice(0, 4);
+function prefixFor(id){
+  id = normId(id); if (!id) return null;
+  let best = null;
+  S.prefixes.forEach(p => { if (id.startsWith(p.prefix) && (!best || p.prefix.length > best.prefix.length)) best = p; });
+  return best;
+}
+/* a container's own tare overrides; otherwise fall back to its prefix */
+const tareOf = c => c ? (c.tare ?? prefixFor(c.id)?.tare ?? null) : null;
+const tareSrc = c => c && c.tare == null && prefixFor(c.id) ? ` (prefix ${prefixFor(c.id).prefix})` : '';
+/* tare inputs accept tonnes (4.6) or kg (4600) */
+const toKg = v => { const x = num(v); if (x == null || x <= 0) return null; return x < 100 ? Math.round(x * 1000) : Math.round(x); };
+
+/* shared "new container" fields: number + optional tare + prefix hint */
+function newContFields(px){
+  return `
+    <label>Container number</label>
+    <input id="${px}-id" placeholder="e.g. AFDB 123456" oninput="prefixHint('${px}')${px==='sw-new'?';swCalc()':''}" style="width:100%" autocomplete="off">
+    <label>Tare (t or kg) — leave blank to use the prefix tare</label>
+    <input id="${px}-tare" type="number" step="any" inputmode="decimal" oninput="prefixHint('${px}')${px==='sw-new'?';swCalc()':''}" style="width:100%">
+    <div id="${px}-hint" class="muted" style="margin-top:4px"></div>`;
+}
+function prefixHint(px){
+  const id = normId($(`#${px}-id`).value), typed = toKg($(`#${px}-tare`).value), el = $(`#${px}-hint`);
+  if (!id){ el.innerHTML = ''; return; }
+  const p = prefixFor(id), lead = leadLetters(id);
+  if (p && typed == null) el.innerHTML = `<span class="pos">✓ Prefix <b>${esc(p.prefix)}</b> → tare ${tn(p.tare)} (${kg(p.tare)})</span>`;
+  else if (p) el.innerHTML = `Using typed tare ${kg(typed)} instead of prefix ${esc(p.prefix)} (${kg(p.tare)})`;
+  else if (typed != null && lead) el.innerHTML = `<label style="display:flex;gap:6px;align-items:center;color:var(--ink)"><input type="checkbox" id="${px}-save" checked style="width:auto"> Save ${tn(typed)} as the tare for prefix <b>${esc(lead)}</b></label>`;
+  else el.innerHTML = `<span class="neg">No saved tare for prefix ${esc(lead || id)} — enter the tare.</span>`;
+}
+/* read the fields → {id, ownTare, tare} or an error string */
+function readNewCont(px){
+  const id = normId($(`#${px}-id`).value), typed = toKg($(`#${px}-tare`).value);
+  if (!id) return 'Enter a container number';
+  const p = prefixFor(id);
+  if (typed == null && !p) return `No tare for prefix ${leadLetters(id) || id} — enter the tare`;
+  return { id, typed, tare: typed ?? p.tare, savePrefix: !p && typed != null && $(`#${px}-save`)?.checked ? leadLetters(id) : null };
+}
+/* commit: save prefix if asked, store container (own tare only when it differs from prefix) */
+function commitNewCont(r){
+  if (r.savePrefix && !S.prefixes.some(p => p.prefix === r.savePrefix)) S.prefixes.push({ prefix: r.savePrefix, tare: r.typed, notes:'' });
+  const p = prefixFor(r.id);
+  const own = (r.typed != null && !(p && p.tare === r.typed)) ? r.typed : null;
+  let c = cont(r.id);
+  if (c){ if (r.typed != null) c.tare = own; }
+  else { c = { id:r.id, tare:own, notes:'' }; S.containers.push(c); }
+  return c;
+}
 function where(c){
   const b = bayOf(c.id);
   if (b) return `Bay ${b.n}`;
@@ -244,7 +298,7 @@ function bayCard(b){
       <div style="font-size:18px;font-weight:700;margin:6px 0">No container</div>
       <button class="primary" onclick="openPlace(${b.n})">Place container</button>
     </div>`;
-  const m = mat(b.material), net = estNet(b);
+  const m = mat(b.material), net = estNet(b), tare = tareOf(c);
   const pct = m.typical ? Math.min(100, b.bales / m.typical * 100) : 0;
   return `
     <div class="bay" style="--mc:${esc(m.color)}">
@@ -252,7 +306,7 @@ function bayCard(b){
         <span class="bay-no">Bay ${b.n}</span>
         <select onchange="setMat(${b.n},this.value)" title="Material">${S.materials.map(x=>`<option value="${esc(x.code)}" ${x.code===b.material?'selected':''}>${esc(x.code)}</option>`).join('')}</select>
       </div>
-      <div><div class="cid">${esc(c.id)}</div><div class="muted">Tare ${kg(c.tare)}${b.startedAt?` · loading since ${fmtDate(b.startedAt)}`:''}</div></div>
+      <div><div class="cid">${esc(c.id)}</div><div class="muted">${tare!=null ? `Tare ${tn(tare)}${tareSrc(c)}` : '<span class="neg">Tare unknown — set it in Containers</span>'}${b.startedAt?` · loading since ${fmtDate(b.startedAt)}`:''}</div></div>
       <div class="bales">
         <button onclick="adj(${b.n},-1)" title="Remove a bale">−</button>
         <input type="number" min="0" inputmode="numeric" value="${b.bales}" onchange="setBales(${b.n},this.value)" aria-label="Bales">
@@ -263,7 +317,7 @@ function bayCard(b){
       <div class="muted">${b.bales} bales${m.typical?` of ~${m.typical} typical`:''} · ${m.baleKg} kg avg/bale</div>
       <dl class="figs">
         <dt>Est. load</dt><dd class="big">${kg(net)}</dd>
-        <dt>Est. gross (load + tare)</dt><dd>${kg(net + c.tare)}</dd>
+        <dt>Est. gross (load + tare)</dt><dd>${tare!=null ? kg(net + tare) : '—'}</dd>
       </dl>
       <div class="actions">
         <button class="primary" onclick="openSwap(${b.n})">Truck swap</button>
@@ -290,7 +344,7 @@ function setMat(n, code){ bay(n).material = code; save(); render(); }
 /* place / change container in a bay */
 function openPlace(n){
   const b = bay(n), cur = cont(b.containerId);
-  const opts = spares().map(c => `<option value="${esc(c.id)}">${esc(c.id)} — tare ${kg(c.tare)}</option>`).join('');
+  const opts = spares().map(c => `<option value="${esc(c.id)}">${esc(c.id)} — tare ${tn(tareOf(c))}</option>`).join('');
   openDlg(`Bay ${n} — ${cur ? 'change container' : 'place container'}`, `
     ${cur ? `<p>Currently: <b>${esc(cur.id)}</b> with ${b.bales} bales. Changing it here does <b>not</b> record a dispatch — use <b>Truck swap</b> for that. Use this to fix a mistake or move a container.</p>` : ''}
     <div class="cols">
@@ -301,10 +355,7 @@ function openPlace(n){
           ${opts}
           <option value="__new" ${opts?'':'selected'}>+ New container…</option>
         </select>
-        <div id="pl-new" class="${opts?'hidden':''}">
-          <label>Container number</label><input id="pl-id" placeholder="e.g. TCLU 123456 7" style="width:100%">
-          <label>Tare (kg) — printed on the door</label><input id="pl-tare" type="number" inputmode="numeric" placeholder="e.g. 2200" style="width:100%">
-        </div>
+        <div id="pl-new" class="${opts?'hidden':''}">${newContFields('pl')}</div>
       </div>
       <div>
         <label>Material</label><select id="pl-mat" style="width:100%">${matOptions(b.material)}</select>
@@ -317,12 +368,10 @@ function doPlace(n){
   const b = bay(n), sel = $('#pl-sel').value;
   let id = null;
   if (sel === '__new'){
-    id = normId($('#pl-id').value); const tare = num($('#pl-tare').value);
-    if (!id) return toast('Enter a container number');
-    if (tare==null || tare<=0) return toast('Enter the container tare');
-    const ex = cont(id);
-    if (ex){ if (bayOf(id) && bayOf(id).n !== +n) return toast(`${id} is already in Bay ${bayOf(id).n}`); ex.tare = tare; }
-    else S.containers.push({ id, tare, notes:'' });
+    const r = readNewCont('pl');
+    if (typeof r === 'string') return toast(r);
+    if (bayOf(r.id) && bayOf(r.id).n !== +n) return toast(`${r.id} is already in Bay ${bayOf(r.id).n}`);
+    id = commitNewCont(r).id;
   } else if (sel !== '__none') id = sel;
   if (id){ const c = cont(id); delete c.outSince; }
   b.containerId = id;
@@ -348,7 +397,7 @@ function openSwap(n){
   const b = bay(n); if (!b.containerId) return openPlace(n);
   const c = cont(b.containerId), m = mat(b.material);
   SW = { n };
-  const spareOpts = spares().map(x => `<option value="${esc(x.id)}">${esc(x.id)} — tare ${kg(x.tare)}</option>`).join('');
+  const spareOpts = spares().map(x => `<option value="${esc(x.id)}">${esc(x.id)} — tare ${tn(tareOf(x))}</option>`).join('');
   const regos = Object.keys(S.trucks).sort().map(r => `<option value="${esc(r)}">`).join('');
 
   openDlg('Truck swap', `
@@ -361,7 +410,7 @@ function openSwap(n){
       <fieldset>
         <legend>Going out — full</legend>
         <div class="cid">${esc(c.id)}</div>
-        <div class="muted">Tare ${kg(c.tare)} · <span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span> ${m.baleKg} kg avg/bale</div>
+        <div class="muted">Tare ${tareOf(c)!=null ? tn(tareOf(c)) + tareSrc(c) : '<span class="neg">unknown</span>'} · <span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span> ${m.baleKg} kg avg/bale</div>
         <label>Bales in container</label>
         <input id="sw-bales" type="number" min="0" inputmode="numeric" value="${b.bales}" oninput="swCalc()">
       </fieldset>
@@ -376,10 +425,7 @@ function openSwap(n){
           ${spareOpts}
           <option value="__new" ${spareOpts?'':'selected'}>+ New container…</option>
         </select>
-        <div id="sw-new" class="${spareOpts?'hidden':''}">
-          <label>Container number</label><input id="sw-new-id" oninput="swCalc()" placeholder="e.g. MSKU 765432 1">
-          <label>Tare (kg)</label><input id="sw-new-tare" type="number" inputmode="numeric" oninput="swCalc()" placeholder="from container door">
-        </div>
+        <div id="sw-new" class="${spareOpts?'hidden':''}">${newContFields('sw-new')}</div>
         <label>Weigh-in gross (truck + empty) kg</label>
         <input id="sw-win" type="number" inputmode="numeric" oninput="swCalc()" placeholder="weighbridge reading">
         <label>Material to load in the empty</label>
@@ -401,17 +447,22 @@ function swRead(){
   const bales = Math.max(0, Math.round(num($('#sw-bales').value) ?? 0));
   const net = bales * m.baleKg;
   const sel = $('#sw-in').value;
-  let inId = null, inTare = 0, isNew = false;
-  if (sel === '__new'){ isNew = true; inId = normId($('#sw-new-id').value); inTare = num($('#sw-new-tare').value); }
-  else if (sel){ inId = sel; inTare = cont(sel).tare; }
+  let inId = null, inTare = 0, isNew = false, newRec = null;
+  if (sel === '__new'){
+    isNew = true; newRec = readNewCont('sw-new');
+    inId = normId($('#sw-new-id').value);
+    inTare = typeof newRec === 'string' ? null : newRec.tare;
+  }
+  else if (sel){ inId = sel; inTare = tareOf(cont(sel)); }
+  const outTare = tareOf(c);
   const rego = normRego($('#sw-rego').value);
   const weighIn = num($('#sw-win').value);
   let truckTare = null, src = '';
   if (weighIn!=null && inTare!=null){ truckTare = weighIn - inTare; src = 'in'; }
   else if (rego && S.trucks[rego]){ truckTare = S.trucks[rego].tare; src = 'known'; }
-  const predicted = truckTare!=null ? truckTare + c.tare + net : null;
+  const predicted = (truckTare!=null && outTare!=null) ? truckTare + outTare + net : null;
   const actualOut = num($('#sw-out').value);
-  return { b, c, m, bales, net, inId, inTare, isNew, rego, weighIn, truckTare, src, predicted, actualOut };
+  return { b, c, m, bales, net, inId, inTare, isNew, newRec, outTare, rego, weighIn, truckTare, src, predicted, actualOut };
 }
 
 function swCalc(){
@@ -426,7 +477,7 @@ function swCalc(){
   } else {
     rows.push(['', 'Truck tare', '<span class="muted">enter weigh-in</span>', 'sub']);
   }
-  rows.push(['+', `Full container tare (${esc(r.c.id)})`, kg(r.c.tare)]);
+  rows.push(['+', `Full container tare — ${esc(r.c.id)}${esc(tareSrc(r.c))}`, kg(r.outTare)]);
   rows.push(['+', `Est. load (${r.bales} × ${r.m.baleKg} kg ${esc(r.m.code)})`, kg(r.net)]);
   $('#sw-calc').innerHTML = `
     <div class="row" style="justify-content:space-between;align-items:center">
@@ -439,8 +490,8 @@ function swCalc(){
     ${r.weighIn==null && !r.src ? '<div class="note">Enter the weigh-in to work out the truck tare' + (Object.keys(S.trucks).length ? ', or pick a known truck rego.' : '.') + '</div>' : ''}`;
 
   let a = '';
-  if (r.actualOut!=null && r.truckTare!=null){
-    const actNet = r.actualOut - r.truckTare - r.c.tare;
+  if (r.actualOut!=null && r.truckTare!=null && r.outTare!=null){
+    const actNet = r.actualOut - r.truckTare - r.outTare;
     const per = r.bales ? actNet / r.bales : null;
     const diff = r.actualOut - r.predicted;
     a = `<div class="calc"><table style="width:auto">
@@ -455,24 +506,22 @@ function swCalc(){
 function doSwap(){
   const r = swRead();
   if (r.isNew){
-    if (!r.inId) return toast('Enter the incoming container number');
-    if (r.inTare==null || r.inTare<=0) return toast('Enter the incoming container tare');
+    if (typeof r.newRec === 'string') return toast(r.newRec);
     if (bayOf(r.inId)) return toast(`${r.inId} is already in Bay ${bayOf(r.inId).n}`);
     if (r.inId === r.c.id) return toast('Incoming container is the same as the outgoing one');
   }
+  if (r.outTare == null) return toast(`No tare for ${r.c.id} — add its prefix tare in Containers first`);
   const now = new Date().toISOString();
   S.history.unshift({
     id: uid(), date: now, bay: r.b.n, rego: r.rego || '',
-    outId: r.c.id, outTare: r.c.tare, material: r.m.code, bales: r.bales, baleKg: r.m.baleKg, estNet: r.net,
+    outId: r.c.id, outTare: r.outTare, material: r.m.code, bales: r.bales, baleKg: r.m.baleKg, estNet: r.net,
     inId: r.inId, inTare: r.inTare || 0, weighIn: r.weighIn,
     truckTare: r.truckTare, predicted: r.predicted, actualOut: r.actualOut, startedAt: r.b.startedAt
   });
   if (r.rego && r.weighIn!=null && r.truckTare!=null) S.trucks[r.rego] = { tare: r.truckTare, updated: now };
   r.c.outSince = now;
   if (r.inId){
-    let ic = cont(r.inId);
-    if (!ic){ ic = { id:r.inId, tare:r.inTare, notes:'' }; S.containers.push(ic); }
-    else if (r.isNew) ic.tare = r.inTare;
+    const ic = r.isNew ? commitNewCont(r.newRec) : cont(r.inId);
     delete ic.outSince;
   }
   const b = r.b;
@@ -487,25 +536,48 @@ function doSwap(){
 function renderContainers(){
   const list = [...S.containers].sort((a,b) => (bayOf(a.id)?.n ?? 99) - (bayOf(b.id)?.n ?? 99) || a.id.localeCompare(b.id));
   const trucks = Object.entries(S.trucks).sort((a,b) => a[0].localeCompare(b[0]));
+  const pfx = [...S.prefixes].sort((a,b) => a.prefix.localeCompare(b.prefix));
   $('#main').innerHTML = `
     <div class="panel">
-      <h2>Container register</h2>
-      <p class="muted">Tares are printed on each container door. Every truck-swap prediction uses these, so keep them right.</p>
+      <h2>Tare by prefix</h2>
+      <p class="muted">Store one tare per container prefix (e.g. <b>AFDB → 4.60 t</b>). Any container whose number starts with that prefix uses this tare automatically, unless it has its own tare in the register below.
+      Tares can be typed in tonnes (4.6) or kg (4600).</p>
       <div class="row" style="margin-bottom:14px">
-        <div><label>Container number</label><input id="c-id" placeholder="e.g. TCLU 123456 7"></div>
-        <div><label>Tare (kg)</label><input id="c-tare" type="number" inputmode="numeric" placeholder="2200"></div>
-        <div><label>Notes</label><input id="c-notes" placeholder="optional" style="width:220px"></div>
-        <div><button class="primary" onclick="addContainer()">Add container</button></div>
+        <div><label>Prefix</label><input id="p-pre" placeholder="AFDB" style="width:110px;text-transform:uppercase" onkeydown="if(event.key==='Enter')$('#p-tare').focus()"></div>
+        <div><label>Tare (t or kg)</label><input id="p-tare" type="number" step="any" inputmode="decimal" placeholder="4.60" style="width:120px" onkeydown="if(event.key==='Enter')addPrefix()"></div>
+        <div><label>Notes</label><input id="p-notes" placeholder="optional, e.g. 40ft high-side" style="width:220px"></div>
+        <div><button class="primary" onclick="addPrefix()">Add prefix</button></div>
       </div>
       <div class="tbl-wrap"><table>
-        <tr><th>Container</th><th class="n">Tare (kg)</th><th>Where</th><th>Notes</th><th></th></tr>
+        <tr><th>Prefix</th><th class="n">Tare (t)</th><th class="n">kg</th><th class="n">Containers using it</th><th>Notes</th><th></th></tr>
+        ${pfx.length ? pfx.map(p => { const used = S.containers.filter(c => c.tare==null && prefixFor(c.id)===p).length; return `<tr>
+          <td><b class="cid" style="font-size:15px">${esc(p.prefix)}</b></td>
+          <td class="n"><input type="number" step="0.01" value="${(p.tare/1000).toFixed(2)}" onchange="setPrefixTare('${esc(p.prefix)}',this.value)" style="width:90px"></td>
+          <td class="n">${kg(p.tare)}</td>
+          <td class="n">${used}</td>
+          <td><input class="wide" value="${esc(p.notes||'')}" onchange="setPrefixNotes('${esc(p.prefix)}',this.value)"></td>
+          <td><button class="small danger" onclick="delPrefix('${esc(p.prefix)}')">Delete</button></td>
+        </tr>`; }).join('') : `<tr><td colspan="6" class="muted">No prefixes yet. Add one above, or tick "save as prefix tare" when entering a new container.</td></tr>`}
+      </table></div>
+    </div>
+    <div class="panel">
+      <h2>Container register</h2>
+      <p class="muted">Containers are added here automatically when they come into a bay. Leave a container's tare blank to use its prefix tare, or type one in to override it for that container only.</p>
+      <div class="row" style="margin-bottom:14px;align-items:flex-start">
+        <div style="width:260px">${newContFields('c')}</div>
+        <div><label>Notes</label><input id="c-notes" placeholder="optional" style="width:220px"></div>
+        <div style="padding-top:26px"><button class="primary" onclick="addContainer()">Add container</button></div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <tr><th>Container</th><th class="n">Own tare (kg)</th><th class="n">Tare used</th><th>Where</th><th>Notes</th><th></th></tr>
         ${list.length ? list.map(c => `<tr>
           <td><b class="cid" style="font-size:15px">${esc(c.id)}</b></td>
-          <td class="n"><input type="number" value="${c.tare}" onchange="setTare('${esc(c.id)}',this.value)"></td>
+          <td class="n"><input type="number" value="${c.tare ?? ''}" placeholder="${prefixFor(c.id) ? 'prefix' : 'needed'}" onchange="setTare('${esc(c.id)}',this.value)"></td>
+          <td class="n">${tareOf(c)!=null ? `${kg(tareOf(c))}<div class="muted">${c.tare!=null ? 'own tare' : 'prefix ' + esc(prefixFor(c.id).prefix)}</div>` : '<span class="neg">unknown</span>'}</td>
           <td>${esc(where(c))}</td>
           <td><input class="wide" value="${esc(c.notes||'')}" onchange="setNotes('${esc(c.id)}',this.value)"></td>
           <td>${bayOf(c.id) ? '' : `<button class="small danger" onclick="delContainer('${esc(c.id)}')">Delete</button>`}</td>
-        </tr>`).join('') : `<tr><td colspan="5" class="muted">No containers yet — add them here or straight from a bay.</td></tr>`}
+        </tr>`).join('') : `<tr><td colspan="6" class="muted">No containers yet — add them here or straight from a bay.</td></tr>`}
       </table></div>
     </div>
     <div class="panel">
@@ -523,14 +595,36 @@ function renderContainers(){
     </div>`;
 }
 function addContainer(){
-  const id = normId($('#c-id').value), tare = num($('#c-tare').value);
-  if (!id) return toast('Enter a container number');
-  if (tare==null || tare<=0) return toast('Enter the tare');
-  if (cont(id)) return toast(`${id} is already in the register`);
-  S.containers.push({ id, tare, notes: $('#c-notes').value.trim() });
-  save(); render(); toast(`${id} added`);
+  const r = readNewCont('c');
+  if (typeof r === 'string') return toast(r);
+  if (cont(r.id)) return toast(`${r.id} is already in the register`);
+  commitNewCont(r).notes = $('#c-notes').value.trim();
+  save(); render(); toast(`${r.id} added`);
 }
-function setTare(id, v){ const t = num(v); if (t==null||t<=0) return toast('Invalid tare'); cont(id).tare = t; save(); toast(`${id} tare updated`); }
+function setTare(id, v){
+  const c = cont(id);
+  if (String(v).trim() === ''){
+    if (!prefixFor(id)) { render(); return toast(`No prefix tare for ${id} — it needs its own tare`); }
+    c.tare = null; save(); render(); return toast(`${id} now uses prefix tare`);
+  }
+  const t = toKg(v); if (t==null) return toast('Invalid tare');
+  c.tare = t; save(); render(); toast(`${id} tare updated`);
+}
+function addPrefix(){
+  const pre = normId($('#p-pre').value).replace(/[^A-Z0-9]/g,''), t = toKg($('#p-tare').value);
+  if (!pre) return toast('Enter a prefix');
+  if (t == null) return toast('Enter the tare');
+  if (S.prefixes.some(p => p.prefix === pre)) return toast(`${pre} already exists — edit it in the table`);
+  S.prefixes.push({ prefix:pre, tare:t, notes:$('#p-notes').value.trim() });
+  save(); render(); toast(`${pre} → ${tn(t)}`); $('#p-pre').focus();
+}
+function setPrefixTare(pre, v){ const t = toKg(v); if (t==null) return toast('Invalid tare'); S.prefixes.find(p => p.prefix===pre).tare = t; save(); render(); toast(`${pre} → ${tn(t)}`); }
+function setPrefixNotes(pre, v){ S.prefixes.find(p => p.prefix===pre).notes = v.trim(); save(); }
+function delPrefix(pre){
+  const users = S.containers.filter(c => c.tare==null && prefixFor(c.id)?.prefix===pre).length;
+  if (!confirm(`Delete prefix ${pre}?${users ? ` ${users} container(s) use it and will have no tare until you set one.` : ''}`)) return;
+  S.prefixes = S.prefixes.filter(p => p.prefix !== pre); save(); render();
+}
 function setNotes(id, v){ cont(id).notes = v.trim(); save(); }
 function delContainer(id){ if (!confirm(`Delete ${id} from the register? History is kept.`)) return; S.containers = S.containers.filter(c => c.id!==id); save(); render(); }
 function setTruck(r, v){ const t = num(v); if (t==null) return; S.trucks[r] = { tare:t, updated:new Date().toISOString() }; save(); render(); }

@@ -15,10 +15,18 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 |---|---|
 | **Yard** | Six bays. Each shows its container number, tare, material, bale count (−/+1/+5 or type it in), estimated load and gross. |
 | **Truck swap** | Records a full container leaving and the empty one replacing it, and predicts the weigh-out. |
-| **Containers & Trucks** | Register of container numbers and their tares, plus the trucks the app has learned. |
+| **Containers & Trucks** | **Tare by prefix** list (e.g. `AFDB → 4.60 t`), the container register, and the trucks the app has learned. |
 | **Materials** | OCC, MXP, ALI, HDPE C, Steel, each with an average kg/bale. You can add more. |
 | **History** | Every dispatched load. Add the actual weigh-out here to see actual load, actual kg/bale and how far off the prediction was. Exports to CSV. |
 | **Backup** | Download or restore a JSON backup. |
+
+## Tare by prefix
+
+Save one tare per container prefix, for example `AFDB → 4.60 t`. When a container comes in, the app checks the start of its number against the prefix list and uses the longest prefix that matches (`AFDB 123456` → 4,600 kg). You can type tares in tonnes (`4.6`) or kg (`4600`).
+
+- Leave a container's tare blank to use its prefix tare. Changing a prefix tare later updates every container that uses it.
+- Typing a tare for one container overrides the prefix tare for that container only.
+- If a new container's prefix isn't on the list, enter its tare once and tick **Save as the tare for prefix XXXX**. After that, any container with that prefix fills its tare in automatically.
 
 ## How the weigh-out prediction works
 
