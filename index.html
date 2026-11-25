@@ -535,6 +535,15 @@ function loadPdfLib(){
   });
 }
 const b64ToBytes = b => Uint8Array.from(atob(b), c => c.charCodeAt(0));
+/* Flat PDFs with no fill-in boxes: the standard Linfox "Container Weight Declaration"
+   (A4, same for Genuine and Visy). Text goes on each line, same column and size as the printed details. */
+const STD_LINES = {
+  'Date line':             { x: 229.7, y: 454.3 },
+  'Container Number line': { x: 229.7, y: 398.6 },
+  'Gross weight line':     { x: 325.0, y: 370.8 },
+  'Tare weight line':      { x: 229.7, y: 342.9 },
+  'Nett weight line':      { x: 316.0, y: 315.1 },
+};
 function guessRole(name, i){
   const n = name.toLowerCase();
   if (/contain|cont\.? ?no/.test(n)) return 'container';
@@ -555,6 +564,13 @@ async function weightDeclaration(n){
     const { PDFDocument, StandardFonts, rgb, PDFName } = await loadPdfLib();
     const pdf = await PDFDocument.load(b64ToBytes(form.b64));
     const font = await pdf.embedFont(StandardFonts.Helvetica), pages = pdf.getPages();
+    if (form.layout === 'std'){
+      Object.entries(STD_LINES).forEach(([name, pos]) => {
+        const text = value(form.map?.[name]); if (!text) return;
+        let size = 16; while (size > 8 && pos.x + font.widthOfTextAtSize(text, size) > 540) size -= 0.5;
+        pages[0].drawText(text, { x: pos.x, y: pos.y, size, font, color: rgb(0,0,0) });
+      });
+    }
     /* write each mapped value where its box is, then drop the boxes so it prints clean */
     let fields = []; try { fields = pdf.getForm().getFields(); } catch(e) {}
     fields.forEach(f => {
@@ -584,12 +600,13 @@ async function uploadForm(loc, file){
     const info = fields.map(f => { const w = f.acroField.getWidgets()[0], r = w ? w.getRectangle() : { x:0, y:0 };
       const pi = Math.max(0, pages.findIndex(pg => w && pg.ref === w.P())); return { name: f.getName(), pi, x: r.x, y: r.y }; })
       .sort((a, b) => a.pi - b.pi || b.y - a.y || a.x - b.x);
-    if (!info.length) toast('This PDF has no fill-in boxes — make it editable (add text fields) so the app knows where to write');
+    const std = !info.length;                      // no boxes: use the standard declaration layout
+    const names = std ? Object.keys(STD_LINES) : info.map(f => f.name);
     const old = S.forms[loc]?.map || {};
-    const map = {}; info.forEach((f, i) => map[f.name] = old[f.name] ?? guessRole(f.name, i));
+    const map = {}; names.forEach((n, i) => map[n] = old[n] ?? (std ? ({ 'Container Number line':'container', 'Tare weight line':'tare' })[n] || '' : guessRole(n, i)));
     const b64 = btoa(bytes.reduce((s, x) => s + String.fromCharCode(x), ''));
-    S.forms = Object.assign({}, S.forms, { [loc]: { b64, name: file.name, at: new Date().toISOString(), fields: info.map(f => f.name), map } });
-    save(); render(); toast(`Form saved for ${loc}`);
+    S.forms = Object.assign({}, S.forms, { [loc]: { b64, name: file.name, at: new Date().toISOString(), fields: names, map, layout: std ? 'std' : 'boxes' } });
+    save(); render(); toast(std ? `Form saved for ${loc} — no fill-in boxes, so it uses the standard declaration lines` : `Form saved for ${loc}`);
   } catch(e){ toast('Could not read that PDF: ' + (e.message || e)); console.error(e); }
 }
 function setFormRole(loc, field, role){ S.forms[loc].map = Object.assign({}, S.forms[loc].map, { [field]: role }); save(); toast('Saved'); }
@@ -602,7 +619,7 @@ function formsPanel(){
       <tr><th>Delivery location</th><th>Form</th><th>What goes in each box</th><th></th></tr>
       ${locs.map(loc => { const f = S.forms[loc], key = JSON.stringify(loc).replace(/"/g, '&quot;'); return `<tr>
         <td><b>${esc(loc)}</b><div class="muted">${S.materials.filter(m => locKey(m.deliveryTo) === loc).map(m => esc(m.code)).join(', ')}</div></td>
-        <td>${f ? `<span class="pill done">✓ ${esc(f.name)}</span><div class="muted">${fmtDate(f.at)}</div>` : '<span class="pill">Not uploaded</span>'}</td>
+        <td>${f ? `<span class="pill done">✓ ${esc(f.name)}</span><div class="muted">${fmtDate(f.at)}${f.layout === 'std' ? '<br>standard declaration layout' : ''}</div>` : '<span class="pill">Not uploaded</span>'}</td>
         <td style="white-space:normal">${f ? (f.fields?.length ? f.fields.map(fn => `<div style="display:flex;gap:6px;align-items:center;margin:2px 0">
             <span class="muted" style="min-width:90px">${esc(fn)}</span>
             <select onchange="setFormRole(${key}, ${JSON.stringify(fn).replace(/"/g, '&quot;')}, this.value)">${FIELD_ROLES.map(([v, l]) => `<option value="${v}" ${(f.map?.[fn] || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('')
