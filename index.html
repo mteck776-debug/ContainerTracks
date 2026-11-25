@@ -266,7 +266,7 @@ function load(){
 }
 function save(){
   if (CLOUD && CLOUD.loaded) return cloudPush();
-  try { localStorage.setItem(KEY, JSON.stringify(S)); }
+  try { localStorage.setItem(KEY, JSON.stringify(S)); autoSnapshot(); }
   catch(e){ toast('Could not save — browser storage is blocked'); }
 }
 
@@ -1109,8 +1109,23 @@ function renderBackup(){
         <label class="btn" style="margin:0;color:var(--ink);font-size:15px">Restore from backup…<input type="file" accept=".json,application/json" onchange="restore(this.files[0])" class="hidden"></label>
         <button class="danger" onclick="resetAll()">Reset everything</button>
       </div>
-      <p class="muted" style="margin-top:14px">${S.containers.length} containers · ${S.history.length} loads · ${Object.keys(S.trucks).length} trucks on record</p>
-    </div>`;
+      <p class="muted" style="margin-top:14px">Now: ${summarise(S)} · ${Object.keys(S.trucks).length} trucks</p>
+    </div>
+    ${recoveryPanel()}`;
+}
+function recoveryPanel(){
+  const snaps = getSnaps();
+  let local = null; try { local = JSON.parse(localStorage.getItem(KEY)); } catch(e) {}
+  const hasLocal = CLOUD && local && ((local.containers||[]).length || (local.history||[]).length);
+  return `<div class="panel">
+    <h2>Recover earlier data</h2>
+    <p class="muted">This browser keeps automatic copies as you work. If something goes missing, restore an earlier version here. Copies only exist on the device where the work was done, so check the PC or tablet the containers were entered on.</p>
+    ${hasLocal ? `<div class="note" style="margin-bottom:10px">This device has data saved from <b>before the shared database</b>: ${summarise(local)}. <button class="small primary" onclick="restoreLocal()">Restore it</button></div>` : ''}
+    ${snaps.length ? `<div class="tbl-wrap"><table><tr><th>Saved</th><th>Contents</th><th></th></tr>
+      ${snaps.map((sn, i) => ({ sn, i })).reverse().map(({ sn, i }) => { let d = {}; try { d = JSON.parse(sn.data); } catch(e) {}
+        return `<tr><td>${fmtDate(new Date(sn.t).toISOString())}</td><td>${summarise(d)}</td><td><button class="small" onclick="restoreSnap(${i})">Restore</button></td></tr>`; }).join('')}
+    </table></div>` : (hasLocal ? '' : '<p class="muted">No automatic copies on this device yet.</p>')}
+  </div>`;
 }
 function download(name, text, type){
   const a = document.createElement('a');
@@ -1186,6 +1201,7 @@ function fromRemote(){
 function cloudPush(){
   const L = toDocs(S), R = CLOUD.remote, F = CLOUD.F, ops = [];
   COLS.forEach(c => {
+    if (CLOUD.blocked && CLOUD.blocked.has(c)) return;
     L[c].forEach((obj, id) => { const j = stable(clean(obj)); if (R[c].get(id) !== j) ops.push(['set', c, id, j]); });
     R[c].forEach((_, id) => { if (!L[c].has(id)) ops.push(['del', c, id]); });
   });
@@ -1198,7 +1214,7 @@ function cloudPush(){
     batch.commit().catch(cloudErr);     // not awaited: offline writes queue and sync later
   }
   ops.forEach(([t, c, id, j]) => t === 'set' ? R[c].set(id, j) : R[c].delete(id));
-  syncStatus();
+  autoSnapshot(); syncStatus();
 }
 function cloudErr(e){
   console.error(e);
@@ -1228,37 +1244,89 @@ addEventListener('online', syncStatus); addEventListener('offline', syncStatus);
 
 function startListeners(){
   const { F, db } = CLOUD;
-  CLOUD.remote = {}; CLOUD.meta = {}; CLOUD.loaded = false;
-  const ready = new Set();
+  CLOUD.remote = {}; CLOUD.meta = {}; CLOUD.loaded = false; CLOUD.blocked = new Set();
+  const ready = new Set(), server = new Set();
   $('#main').innerHTML = '<div class="panel">Loading yard…</div>';
   setSync('busy', 'Loading…');
+  const tryLoad = () => {
+    if (ready.size < COLS.length) return;
+    if (CLOUD.loaded){ S = fromRemote(); autoSnapshot(); scheduleRender(); syncStatus(); return; }
+    const anyData = COLS.some(c => CLOUD.remote[c].size > 0);
+    const confirmed = COLS.every(c => server.has(c) || CLOUD.blocked.has(c));
+    /* Only treat the database as brand new once the SERVER says it's empty.
+       A fresh browser's local cache is empty too — never seed from that. */
+    if (!confirmed && !anyData) return;
+    firstLoad(confirmed);
+    syncStatus();
+  };
   CLOUD.unsubs = COLS.map(c => F.onSnapshot(F.collection(db, c), { includeMetadataChanges: true }, snap => {
     const m = new Map(); snap.forEach(d => m.set(d.id, stable(d.data())));
     CLOUD.remote[c] = m;
     CLOUD.meta[c] = { pending: snap.metadata.hasPendingWrites, cache: snap.metadata.fromCache };
+    if (!snap.metadata.fromCache) server.add(c);
     ready.add(c);
-    if (ready.size < COLS.length) return;
-    if (!CLOUD.loaded) firstLoad(); else { S = fromRemote(); scheduleRender(); }
-    syncStatus();
+    tryLoad();
   }, err => {
-    cloudErr(err);
-    if (err.code === 'permission-denied') $('#main').innerHTML = `<div class="panel"><h2>No access</h2><p>Firebase refused access. Check the Firestore rules have been published (Firestore Database → Rules).</p></div>`;
+    console.error(c, err);
+    /* one collection refused (e.g. rules not updated): carry on without it, never write to it */
+    CLOUD.blocked.add(c); CLOUD.remote[c] = new Map(); ready.add(c);
+    if (err.code === 'permission-denied'){
+      if (CLOUD.blocked.size === COLS.length){
+        $('#main').innerHTML = `<div class="panel"><h2>No access</h2><p>Firebase refused access. Check the Firestore rules have been published (Firestore Database → Rules) and Anonymous sign-in is turned on.</p></div>`;
+        return;
+      }
+      toast(`Firestore rules need updating — paste the latest firestore.rules into Firebase and Publish (blocked: ${c})`);
+    }
+    tryLoad();
   }));
+  /* still nothing from the server after a while */
+  setTimeout(() => { if (!CLOUD.loaded && CLOUD.unsubs.length) $('#main').innerHTML = '<div class="panel"><h2>Still loading…</h2><p>Can\'t reach the shared database yet. Check the internet connection. Nothing has been changed.</p></div>'; }, 12000);
 }
-function firstLoad(){
+function firstLoad(confirmed){
   CLOUD.loaded = true;
   const empty = COLS.every(c => CLOUD.remote[c].size === 0);
-  if (!empty){ S = fromRemote(); render(); return; }
-  /* brand-new project: seed it, offering to bring this device's data up */
+  if (!empty || !confirmed){ S = fromRemote(); autoSnapshot(); render(); return; }
+  /* brand-new project (confirmed by the server): seed it, offering to bring this device's data up */
   let local = null; try { local = JSON.parse(localStorage.getItem(KEY)); } catch(e) {}
   const hasLocal = local && ((local.containers||[]).length || (local.history||[]).length || (local.prefixes||[]).length);
   S = defaults();
   if (hasLocal && confirm('The shared database is empty. Upload the data already on this device to it?')){
-    S = Object.assign(defaults(), local);
+    S = migrate(Object.assign(defaults(), local));
     for (let i = S.bays.length; i < BAY_COUNT; i++) S.bays.push(newBay(i+1));
   }
   cloudPush(); render(); toast('Shared database set up');
 }
+
+/* ---------- automatic backups on this device ----------
+   Every change is kept in this browser (last 40 versions, one per 5 minutes),
+   so a mistake can be rolled back from the Backup tab. */
+const SNAP_KEY = 'containertracks:snapshots';
+function getSnaps(){ try { return JSON.parse(localStorage.getItem(SNAP_KEY)) || []; } catch(e){ return []; } }
+function autoSnapshot(){
+  const hasData = S.containers.length || S.history.length || S.bays.some(b => b.containerId);
+  if (!hasData) return;                                   // never back up an empty yard over a full one
+  try {
+    const snaps = getSnaps(), data = JSON.stringify(S), now = Date.now();
+    const last = snaps[snaps.length - 1];
+    if (last && last.data === data) return;
+    if (last && now - last.t < 5*60*1000) snaps[snaps.length - 1] = { t: now, data };
+    else snaps.push({ t: now, data });
+    while (snaps.length > 40) snaps.shift();
+    localStorage.setItem(SNAP_KEY, JSON.stringify(snaps));
+  } catch(e) {}
+}
+const summarise = d => {
+  const inBays = (d.bays||[]).filter(b => b.containerId).length;
+  return `${inBays} in bays · ${(d.containers||[]).length} containers · ${(d.history||[]).length} loads`;
+};
+function restoreData(d, label){
+  if (!confirm(`Restore ${label}?\n\n${summarise(d)}\n\nThis replaces the current data${CLOUD ? ' for everyone' : ''}.`)) return;
+  S = migrate(Object.assign(defaults(), d));
+  for (let i = S.bays.length; i < BAY_COUNT; i++) S.bays.push(newBay(i+1));
+  save(); render(); toast('Restored');
+}
+function restoreSnap(i){ const sn = getSnaps()[i]; restoreData(JSON.parse(sn.data), 'the version from ' + fmtDate(new Date(sn.t).toISOString())); }
+function restoreLocal(){ try { restoreData(JSON.parse(localStorage.getItem(KEY)), 'the data saved on this device before syncing'); } catch(e){ toast('Nothing saved on this device'); } }
 
 /* called by the module script once the Firebase SDK has loaded */
 window.cloudStart = ctx => {
