@@ -266,7 +266,7 @@ function migrate(st){
     if (m.deliveryTo === undefined) Object.assign(m, DELIVERY_DEFAULTS[m.code] || { deliveryTo:GRG, deliveryInstr:'' });
   });
   st.settings = Object.assign({}, BOOKING_DEFAULTS, st.settings || {});
-  st.loads = st.loads || []; st.companies = st.companies || [];
+  st.loads = st.loads || []; st.companies = st.companies || []; st.forms = st.forms || {};
   if (!st.truckConfigs || !st.truckConfigs.length) st.truckConfigs = [
     { id:'b9', name:'9 axle B-double', maxGross:62500, maxBales:0 },
     { id:'b8', name:'8 axle B-double', maxGross:59000, maxBales:0 },
@@ -510,6 +510,53 @@ function fmtContNo(id){
 const bookName = m => (m.bookName || m.name || m.code).trim();
 const todayAU = () => new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
 
+/* ---------- Genuine Recycling container weight declaration (PDF) ----------
+   The signed form is uploaded once (Materials tab) and kept in the shared database,
+   not in the public repo. Container number + tare are written onto its lines. */
+const PDFLIB_URL = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+const isGenuine = m => /genuine/i.test(m.deliveryTo || '');
+function loadPdfLib(){
+  if (window.PDFLib) return Promise.resolve(window.PDFLib);
+  return new Promise((ok, fail) => {
+    const sc = document.createElement('script'); sc.src = PDFLIB_URL;
+    sc.onload = () => ok(window.PDFLib); sc.onerror = () => fail(new Error('Could not load the PDF tool (check internet)'));
+    document.head.appendChild(sc);
+  });
+}
+const b64ToBytes = b => Uint8Array.from(atob(b), c => c.charCodeAt(0));
+async function weightDeclaration(n){
+  const b = bay(n), c = cont(b.containerId), form = S.forms?.genuine;
+  if (!form) return toast('Upload the Genuine weight declaration PDF on the Materials tab first');
+  const tare = tareOf(c);
+  const win = window.open('', '_blank');           // open now so pop-up blockers allow it
+  try {
+    const { PDFDocument, StandardFonts, rgb, PDFName } = await loadPdfLib();
+    const pdf = await PDFDocument.load(b64ToBytes(form.b64));
+    /* drop the blue fill-in boxes: detach the form fields and their widgets */
+    try { pdf.getForm().acroForm.dict.set(PDFName.of('Fields'), pdf.context.obj([])); } catch(e) {}
+    pdf.getPages().forEach(pg => pg.node.delete(PDFName.of('Annots')));
+    const page = pdf.getPages()[0], font = await pdf.embedFont(StandardFonts.Helvetica);
+    const P = S.settings.declPos || {};
+    /* same column, size and baseline as the printed details above (Genuine Recycling Group etc.) */
+    page.drawText(fmtContNo(c.id), { x: P.contX ?? 229.7, y: P.contY ?? 398.6, size: 16, font, color: rgb(0,0,0) });
+    if (tare != null) page.drawText(`${(tare/1000).toFixed(2)} t`, { x: P.tareX ?? 229.7, y: P.tareY ?? 342.9, size: 16, font, color: rgb(0,0,0) });
+    const url = URL.createObjectURL(new Blob([await pdf.save()], { type: 'application/pdf' }));
+    if (win) win.location.href = url; else window.open(url, '_blank');
+  } catch(e){ if (win) win.close(); toast(e.message || 'Could not make the PDF'); console.error(e); }
+}
+function uploadForm(file){
+  if (!file) return;
+  if (file.size > 700000) return toast('That PDF is too big (keep it under 700 KB)');
+  const r = new FileReader();
+  r.onload = () => {
+    const b64 = btoa(new Uint8Array(r.result).reduce((s, x) => s + String.fromCharCode(x), ''));
+    S.forms = Object.assign({}, S.forms, { genuine: { b64, name: file.name, at: new Date().toISOString() } });
+    save(); render(); toast('Weight declaration form saved');
+  };
+  r.readAsArrayBuffer(file);
+}
+function removeForm(){ if (!confirm('Remove the uploaded weight declaration form?')) return; S.forms = Object.assign({}, S.forms, { genuine: null }); save(); render(); }
+
 /* the fields, in the order they appear on the Linfox "New Booking" form */
 function sheetRows(b, orderNo, bales){
   const c = cont(b.containerId), m = mat(b.material), st = S.settings;
@@ -565,6 +612,7 @@ function openBook(n){
       ${sheetHTML(b, b.booking.orderNo, bl)}
       <p class="muted">The booking clears when the truck swap is done.</p>`,
       `<button class="danger" onclick="cancelBook(${n})" style="margin-right:auto">Remove booking</button>
+       ${isGenuine(m) ? `<button onclick="weightDeclaration(${n})">Weight declaration PDF</button>` : ''}
        <button onclick="copyText(SHEET)">Copy all</button>
        <button onclick="openLinfox()">Open Linfox portal</button>
        <button class="primary" onclick="closeDlg()">Close</button>`);
@@ -592,6 +640,7 @@ function bookNow(n){
     <div id="bk-sheet">${sheetHTML(b, no, b.bales)}</div>
     <p>After you've submitted the booking in the portal, click <b>Mark as booked</b>.</p>`,
     `<button onclick="closeDlg()" style="margin-right:auto">Cancel</button>
+     ${isGenuine(m) ? `<button onclick="weightDeclaration(${n})">Weight declaration PDF</button>` : ''}
      <button onclick="copyText(sheetText(bay(${n}), bkNo(), bkBales(bay(${n}))))">Copy all</button>
      <button onclick="openLinfox()">Open portal again</button>
      <button class="primary" onclick="markBooked(${n})">Mark as booked</button>`);
@@ -1294,6 +1343,13 @@ function renderMaterials(){
           <td><input value="${esc(m.deliveryInstr||'')}" placeholder="none" onchange="setMatField(${i},'deliveryInstr',this.value)" style="width:300px"></td>
         </tr>`).join('')}
       </table></div>
+      <h3 style="margin-top:22px">Genuine Recycling weight declaration</h3>
+      <p class="muted">Upload the signed Container Weight Declaration PDF once. Bookings going to Genuine Recycling then get a <b>Weight declaration PDF</b> button that fills in the container number and tare, ready to print. The form is stored in the app's database, not on GitHub.</p>
+      <div class="row" style="align-items:center">
+        ${S.forms?.genuine ? `<span class="pill done">✓ ${esc(S.forms.genuine.name)}</span><span class="muted">uploaded ${fmtDate(S.forms.genuine.at)}</span>
+           <button class="small danger" onclick="removeForm()">Remove</button>` : '<span class="pill">Not uploaded</span>'}
+        <label class="btn" style="margin:0;color:var(--ink);font-size:14px">${S.forms?.genuine ? 'Replace PDF…' : 'Upload PDF…'}<input type="file" accept="application/pdf,.pdf" class="hidden" onchange="uploadForm(this.files[0])"></label>
+      </div>
       <h3 style="margin-top:22px">Booking details (same on every booking)</h3>
       <div class="tbl-wrap"><table>
         ${[['serviceType','Service type'],['depot','Depot'],['pickupLocation','Pickup location'],['email','Pickup contact email'],['phone','Pickup contact number'],
@@ -1492,6 +1548,7 @@ function toDocs(st){
   out.settings.set('booking', st.settings);
   out.settings.set('companies', { names: st.companies });
   out.settings.set('truckConfigs', { list: st.truckConfigs });
+  out.settings.set('forms', { genuine: st.forms?.genuine || null });
   (st.loads||[]).forEach(l => out.loads.set(l.id, l));
   return out;
 }
@@ -1511,6 +1568,7 @@ function fromRemote(){
   s.companies = sdoc('companies')?.names || [];
   const cfgs = sdoc('truckConfigs')?.list; if (cfgs && cfgs.length) s.truckConfigs = cfgs;
   s.loads = vals('loads');
+  s.forms = { genuine: sdoc('forms')?.genuine || null };
   return s;
 }
 

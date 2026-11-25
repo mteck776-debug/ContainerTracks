@@ -59,6 +59,8 @@ The next booking uses *last used + 1*.
 - Product description: `48 x MRF Aluminium Bales`. Product type is 12.2M/40" Container General, quantity 1, weight 18000 kg (Linfox minimum charge).
 - Delivery goes to **Genuine Recycling Group** with no instructions, except **Mixed Paper**, which goes to **Visy** with *Booking required, Driver must quote - VWI 18811638*.
 
+**Weight declaration PDF.** Bookings going to Genuine Recycling get a **Weight declaration PDF** button. It fills the container number and tare into the Container Weight Declaration, ready to print. Upload the signed form once on the **Materials** tab. It's stored in the app's Firebase database, never in this public repo.
+
 You can change all of these on the Materials tab: name on booking, delivery location and instructions for each material, plus the booking details that are the same every time (email, phone, depot and so on). If you type a number that's further along the sequence, the sequence jumps forward to match.
 
 ## Tare by prefix
