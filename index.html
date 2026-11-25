@@ -158,9 +158,12 @@ const defaults = () => ({
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num = v => { if (v==null) return null; const x = parseFloat(String(v).replace(/[, ]/g,'')); return isNaN(x) ? null : x; };
-const kg  = n => (n==null || isNaN(n)) ? '—' : Math.round(n).toLocaleString('en-AU') + ' kg';
+/* everything is stored in kg but shown and typed in tonnes */
+const kg  = n => (n==null || isNaN(n)) ? '—' : (n/1000).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' t';
+const bt  = n => (n==null || isNaN(n)) ? '—' : (n/1000).toFixed(3) + ' t';   // bale weights need 3 decimals
+const tv  = (n, d=2) => n==null ? '' : +(n/1000).toFixed(d);                  // input value in tonnes
 const tn  = n => (n==null || isNaN(n)) ? '—' : (n/1000).toFixed(2) + ' t';
-const signed = n => (n>0?'+':'') + Math.round(n).toLocaleString('en-AU') + ' kg';
+const signed = n => (n>0?'+':'−') + kg(Math.abs(n));
 const normId = s => String(s||'').toUpperCase().replace(/\s+/g,'').trim();
 const normRego = s => String(s||'').toUpperCase().replace(/\s+/g,'').trim();
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
@@ -201,7 +204,7 @@ function prefixFor(id){
 /* a container's own tare overrides; otherwise fall back to its prefix */
 const tareOf = c => c ? (c.tare ?? prefixFor(c.id)?.tare ?? null) : null;
 const tareSrc = c => c && c.tare == null && prefixFor(c.id) ? ` (prefix ${prefixFor(c.id).prefix})` : '';
-/* tare inputs accept tonnes (4.6) or kg (4600) */
+/* weight inputs are tonnes (4.6); a big number like 4600 is taken as kg, just in case */
 const toKg = v => { const x = num(v); if (x == null || x <= 0) return null; return x < 100 ? Math.round(x * 1000) : Math.round(x); };
 
 /* shared "new container" fields: number + optional tare + prefix hint */
@@ -209,7 +212,7 @@ function newContFields(px){
   return `
     <label>Container number</label>
     <input id="${px}-id" placeholder="e.g. AFDB 123456" oninput="prefixHint('${px}')${px==='sw-new'?';swCalc()':''}" style="width:100%" autocomplete="off">
-    <label>Tare (t or kg) — leave blank to use the prefix tare</label>
+    <label>Tare (t) — leave blank to use the prefix tare</label>
     <input id="${px}-tare" type="number" step="any" inputmode="decimal" oninput="prefixHint('${px}')${px==='sw-new'?';swCalc()':''}" style="width:100%">
     <div id="${px}-hint" class="muted" style="margin-top:4px"></div>`;
 }
@@ -217,7 +220,7 @@ function prefixHint(px){
   const id = normId($(`#${px}-id`).value), typed = toKg($(`#${px}-tare`).value), el = $(`#${px}-hint`);
   if (!id){ el.innerHTML = ''; return; }
   const p = prefixFor(id), lead = leadLetters(id);
-  if (p && typed == null) el.innerHTML = `<span class="pos">✓ Prefix <b>${esc(p.prefix)}</b> → tare ${tn(p.tare)} (${kg(p.tare)})</span>`;
+  if (p && typed == null) el.innerHTML = `<span class="pos">✓ Prefix <b>${esc(p.prefix)}</b> → tare ${kg(p.tare)}</span>`;
   else if (p) el.innerHTML = `Using typed tare ${kg(typed)} instead of prefix ${esc(p.prefix)} (${kg(p.tare)})`;
   else if (typed != null && lead) el.innerHTML = `<label style="display:flex;gap:6px;align-items:center;color:var(--ink)"><input type="checkbox" id="${px}-save" checked style="width:auto"> Save ${tn(typed)} as the tare for prefix <b>${esc(lead)}</b></label>`;
   else el.innerHTML = `<span class="neg">No saved tare for prefix ${esc(lead || id)} — enter the tare.</span>`;
@@ -324,7 +327,7 @@ function bayCard(b){
         <span class="bay-no">Bay ${b.n}</span>
         <select onchange="setMat(${b.n},this.value)" title="Material">${S.materials.map(x=>`<option value="${esc(x.code)}" ${x.code===b.material?'selected':''}>${esc(x.code)}</option>`).join('')}</select>
       </div>
-      <div><div class="cid">${esc(c.id)}</div><div class="muted">${tare!=null ? `Tare ${tn(tare)}${tareSrc(c)}` : '<span class="neg">Tare unknown — set it in Containers</span>'}${b.startedAt?` · loading since ${fmtDate(b.startedAt)}`:''}</div></div>
+      <div><div class="cid">${esc(c.id)}</div><div class="muted">${tare!=null ? `Tare ${kg(tare)}${tareSrc(c)}` : '<span class="neg">Tare unknown — set it in Containers</span>'}${b.startedAt?` · loading since ${fmtDate(b.startedAt)}`:''}</div></div>
       <div class="bales">
         <button onclick="adj(${b.n},-1)" title="Remove a bale">−</button>
         <input type="number" min="0" inputmode="numeric" value="${b.bales}" onchange="setBales(${b.n},this.value)" aria-label="Bales">
@@ -344,7 +347,7 @@ function bayCard(b){
         <dt>Est. load</dt><dd class="big">${kg(net)}</dd>
         <dt>Est. gross (load + tare)</dt><dd>${tare!=null ? kg(net + tare) : '—'}</dd>
         ${tgt ? `<dt>Est. load at target</dt><dd>${kg(tgt * m.baleKg)}</dd>` : ''}
-        <dt class="muted">Avg kg/bale (${esc(m.code)})</dt><dd class="muted">${m.baleKg} kg</dd>
+        <dt class="muted">Avg per bale (${esc(m.code)})</dt><dd class="muted">${bt(m.baleKg)}</dd>
       </dl>
       <div class="actions">
         <button class="primary" onclick="openSwap(${b.n})">Truck swap</button>
@@ -443,7 +446,7 @@ function openSwap(n){
       <fieldset>
         <legend>Going out — full</legend>
         <div class="cid">${esc(c.id)}</div>
-        <div class="muted">Tare ${tareOf(c)!=null ? tn(tareOf(c)) + tareSrc(c) : '<span class="neg">unknown</span>'} · <span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span> ${m.baleKg} kg avg/bale</div>
+        <div class="muted">Tare ${tareOf(c)!=null ? kg(tareOf(c)) + tareSrc(c) : '<span class="neg">unknown</span>'} · <span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span> ${bt(m.baleKg)} avg/bale</div>
         <label>Bales in container</label>
         <input id="sw-bales" type="number" min="0" inputmode="numeric" value="${b.bales}" oninput="swCalc()">
         <div id="sw-tgt" class="muted" style="margin-top:6px"></div>
@@ -460,16 +463,16 @@ function openSwap(n){
           <option value="__new" ${spareOpts?'':'selected'}>+ New container…</option>
         </select>
         <div id="sw-new" class="${spareOpts?'hidden':''}">${newContFields('sw-new')}</div>
-        <label>Weigh-in gross (truck + empty) kg</label>
-        <input id="sw-win" type="number" inputmode="numeric" oninput="swCalc()" placeholder="weighbridge reading">
+        <label>Weigh-in gross (truck + empty) — tonnes</label>
+        <input id="sw-win" type="number" step="any" inputmode="decimal" oninput="swCalc()" placeholder="e.g. 16.20">
         <label>Material to load in the empty</label>
         <select id="sw-mat">${matOptions(b.material)}</select>
       </fieldset>
     </div>
     <div class="calc" id="sw-calc"></div>
     <div class="row" style="margin-top:12px">
-      <div><label>Actual weigh-out kg (optional — can add later in History)</label>
-      <input id="sw-out" type="number" inputmode="numeric" oninput="swCalc()" placeholder="weighbridge reading"></div>
+      <div><label>Actual weigh-out — tonnes (optional, can add later in History)</label>
+      <input id="sw-out" type="number" step="any" inputmode="decimal" oninput="swCalc()" placeholder="e.g. 36.55"></div>
     </div>
     <div id="sw-actual"></div>`,
     `<button onclick="closeDlg()">Cancel</button><button class="primary" onclick="doSwap()">Confirm swap</button>`);
@@ -490,12 +493,12 @@ function swRead(){
   else if (sel){ inId = sel; inTare = tareOf(cont(sel)); }
   const outTare = tareOf(c);
   const rego = normRego($('#sw-rego').value);
-  const weighIn = num($('#sw-win').value);
+  const weighIn = toKg($('#sw-win').value);
   let truckTare = null, src = '';
   if (weighIn!=null && inTare!=null){ truckTare = weighIn - inTare; src = 'in'; }
   else if (rego && S.trucks[rego]){ truckTare = S.trucks[rego].tare; src = 'known'; }
   const predicted = (truckTare!=null && outTare!=null) ? truckTare + outTare + net : null;
-  const actualOut = num($('#sw-out').value);
+  const actualOut = toKg($('#sw-out').value);
   return { b, c, m, bales, net, inId, inTare, isNew, newRec, outTare, rego, weighIn, truckTare, src, predicted, actualOut };
 }
 
@@ -514,13 +517,12 @@ function swCalc(){
     rows.push(['', 'Truck tare', '<span class="muted">enter weigh-in</span>', 'sub']);
   }
   rows.push(['+', `Full container tare — ${esc(r.c.id)}${esc(tareSrc(r.c))}`, kg(r.outTare)]);
-  rows.push(['+', `Est. load (${r.bales} × ${r.m.baleKg} kg ${esc(r.m.code)})`, kg(r.net)]);
+  rows.push(['+', `Est. load (${r.bales} × ${bt(r.m.baleKg)} ${esc(r.m.code)})`, kg(r.net)]);
   $('#sw-calc').innerHTML = `
     <div class="row" style="justify-content:space-between;align-items:center">
       <table style="width:auto">${rows.map(([op,l,v,cls]) => `<tr class="${cls||''}"><td class="op">${op}</td><td>${l}</td><td class="n">${v}</td></tr>`).join('')}
         <tr class="total"><td class="op">=</td><td>Predicted weigh-out</td><td class="n">${kg(r.predicted)}</td></tr></table>
-      <div style="text-align:right"><div class="muted">Expect on the weighbridge</div><div class="predict">${r.predicted!=null ? kg(r.predicted) : '—'}</div>
-      ${r.predicted!=null ? `<div class="muted">${tn(r.predicted)}</div>` : ''}</div>
+      <div style="text-align:right"><div class="muted">Expect on the weighbridge</div><div class="predict">${r.predicted!=null ? kg(r.predicted) : '—'}</div></div>
     </div>
     ${r.weighIn!=null && r.inTare!=null && r.weighIn < r.inTare ? '<div class="note">Weigh-in is less than the empty container tare — check the numbers.</div>' : ''}
     ${r.weighIn==null && !r.src ? '<div class="note">Enter the weigh-in to work out the truck tare' + (Object.keys(S.trucks).length ? ', or pick a known truck rego.' : '.') + '</div>' : ''}`;
@@ -532,7 +534,7 @@ function swCalc(){
     const diff = r.actualOut - r.predicted;
     a = `<div class="calc"><table style="width:auto">
       <tr><td>Actual load (weigh-out − truck tare − container tare)</td><td class="n"><b>${kg(actNet)}</b></td></tr>
-      <tr><td>Actual average per bale</td><td class="n"><b>${per!=null ? kg(per) : '—'}</b> <span class="muted">(using ${r.m.baleKg})</span></td></tr>
+      <tr><td>Actual average per bale</td><td class="n"><b>${per!=null ? bt(per) : '—'}</b> <span class="muted">(using ${bt(r.m.baleKg)})</span></td></tr>
       <tr><td>Difference from prediction</td><td class="n ${Math.abs(diff)>1000?'neg':'pos'}"><b>${signed(diff)}</b> <span class="muted">(${(diff/r.predicted*100).toFixed(1)}%)</span></td></tr>
     </table></div>`;
   }
@@ -577,19 +579,18 @@ function renderContainers(){
     <div class="panel">
       <h2>Tare by prefix</h2>
       <p class="muted">Store one tare per container prefix (e.g. <b>AFDB → 4.60 t</b>). Any container whose number starts with that prefix uses this tare automatically, unless it has its own tare in the register below.
-      Tares can be typed in tonnes (4.6) or kg (4600).</p>
+      All weights are in tonnes.</p>
       <div class="row" style="margin-bottom:14px">
         <div><label>Prefix</label><input id="p-pre" placeholder="AFDB" style="width:110px;text-transform:uppercase" onkeydown="if(event.key==='Enter')$('#p-tare').focus()"></div>
-        <div><label>Tare (t or kg)</label><input id="p-tare" type="number" step="any" inputmode="decimal" placeholder="4.60" style="width:120px" onkeydown="if(event.key==='Enter')addPrefix()"></div>
+        <div><label>Tare (t)</label><input id="p-tare" type="number" step="any" inputmode="decimal" placeholder="4.60" style="width:120px" onkeydown="if(event.key==='Enter')addPrefix()"></div>
         <div><label>Notes</label><input id="p-notes" placeholder="optional, e.g. 40ft high-side" style="width:220px"></div>
         <div><button class="primary" onclick="addPrefix()">Add prefix</button></div>
       </div>
       <div class="tbl-wrap"><table>
-        <tr><th>Prefix</th><th class="n">Tare (t)</th><th class="n">kg</th><th class="n">Containers using it</th><th>Notes</th><th></th></tr>
+        <tr><th>Prefix</th><th class="n">Tare (t)</th><th class="n">Containers using it</th><th>Notes</th><th></th></tr>
         ${pfx.length ? pfx.map(p => { const used = S.containers.filter(c => c.tare==null && prefixFor(c.id)===p).length; return `<tr>
           <td><b class="cid" style="font-size:15px">${esc(p.prefix)}</b></td>
           <td class="n"><input type="number" step="0.01" value="${(p.tare/1000).toFixed(2)}" onchange="setPrefixTare('${esc(p.prefix)}',this.value)" style="width:90px"></td>
-          <td class="n">${kg(p.tare)}</td>
           <td class="n">${used}</td>
           <td><input class="wide" value="${esc(p.notes||'')}" onchange="setPrefixNotes('${esc(p.prefix)}',this.value)"></td>
           <td><button class="small danger" onclick="delPrefix('${esc(p.prefix)}')">Delete</button></td>
@@ -605,10 +606,10 @@ function renderContainers(){
         <div style="padding-top:26px"><button class="primary" onclick="addContainer()">Add container</button></div>
       </div>
       <div class="tbl-wrap"><table>
-        <tr><th>Container</th><th class="n">Own tare (kg)</th><th class="n">Tare used</th><th>Where</th><th>Notes</th><th></th></tr>
+        <tr><th>Container</th><th class="n">Own tare (t)</th><th class="n">Tare used</th><th>Where</th><th>Notes</th><th></th></tr>
         ${list.length ? list.map(c => `<tr>
           <td><b class="cid" style="font-size:15px">${esc(c.id)}</b></td>
-          <td class="n"><input type="number" value="${c.tare ?? ''}" placeholder="${prefixFor(c.id) ? 'prefix' : 'needed'}" onchange="setTare('${esc(c.id)}',this.value)"></td>
+          <td class="n"><input type="number" step="0.01" value="${tv(c.tare)}" placeholder="${prefixFor(c.id) ? 'prefix' : 'needed'}" onchange="setTare('${esc(c.id)}',this.value)"></td>
           <td class="n">${tareOf(c)!=null ? `${kg(tareOf(c))}<div class="muted">${c.tare!=null ? 'own tare' : 'prefix ' + esc(prefixFor(c.id).prefix)}</div>` : '<span class="neg">unknown</span>'}</td>
           <td>${esc(where(c))}</td>
           <td><input class="wide" value="${esc(c.notes||'')}" onchange="setNotes('${esc(c.id)}',this.value)"></td>
@@ -620,10 +621,10 @@ function renderContainers(){
       <h2>Known trucks</h2>
       <p class="muted">Each truck's tare is saved from its last weigh-in (weigh-in − empty container tare). If a truck comes back, picking its rego gives a prediction before it even hits the bridge.</p>
       <div class="tbl-wrap"><table>
-        <tr><th>Rego</th><th class="n">Tare (kg)</th><th>Last updated</th><th></th></tr>
+        <tr><th>Rego</th><th class="n">Tare (t)</th><th>Last updated</th><th></th></tr>
         ${trucks.length ? trucks.map(([r,t]) => `<tr>
           <td><b>${esc(r)}</b></td>
-          <td class="n"><input type="number" value="${Math.round(t.tare)}" onchange="setTruck('${esc(r)}',this.value)"></td>
+          <td class="n"><input type="number" step="0.01" value="${tv(t.tare)}" onchange="setTruck('${esc(r)}',this.value)"></td>
           <td>${fmtDate(t.updated)}</td>
           <td><button class="small danger" onclick="delTruck('${esc(r)}')">Delete</button></td>
         </tr>`).join('') : `<tr><td colspan="4" class="muted">Trucks are added automatically when you do a swap with a rego and weigh-in.</td></tr>`}
@@ -663,7 +664,7 @@ function delPrefix(pre){
 }
 function setNotes(id, v){ cont(id).notes = v.trim(); save(); }
 function delContainer(id){ if (!confirm(`Delete ${id} from the register? History is kept.`)) return; S.containers = S.containers.filter(c => c.id!==id); save(); render(); }
-function setTruck(r, v){ const t = num(v); if (t==null) return; S.trucks[r] = { tare:t, updated:new Date().toISOString() }; save(); render(); }
+function setTruck(r, v){ const t = toKg(v); if (t==null) return toast('Invalid tare'); S.trucks[r] = { tare:t, updated:new Date().toISOString() }; save(); render(); }
 function delTruck(r){ delete S.trucks[r]; save(); render(); }
 
 /* =========================================================
@@ -673,17 +674,17 @@ function renderMaterials(){
   $('#main').innerHTML = `
     <div class="panel">
       <h2>Materials &amp; average bale weights</h2>
-      <p class="muted">The yard estimates use <b>avg kg/bale</b>. Once loads have an actual weigh-out in History, the <b>learned</b> column shows the real average — hit <b>Use</b> to adopt it.
+      <p class="muted">The yard estimates use <b>avg tonnes per bale</b>. Once loads have an actual weigh-out in History, the <b>learned</b> column shows the real average — hit <b>Use</b> to adopt it.
       <b>Target bales</b> is how many bales to aim for per container — each bay uses it unless you set a different target on the bay card.</p>
       <div class="tbl-wrap"><table>
-        <tr><th>Colour</th><th>Code</th><th>Name</th><th class="n">Avg kg / bale</th><th class="n">Target bales / container</th><th class="n">Learned from weigh-outs</th><th></th></tr>
+        <tr><th>Colour</th><th>Code</th><th>Name</th><th class="n">Avg t / bale</th><th class="n">Target bales / container</th><th class="n">Learned from weigh-outs</th><th></th></tr>
         ${S.materials.map((m,i) => { const l = learned(m.code); return `<tr>
           <td><input type="color" value="${esc(m.color)}" onchange="setMatField(${i},'color',this.value)" style="width:44px;padding:2px"></td>
           <td><span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span></td>
           <td><input class="wide" value="${esc(m.name)}" onchange="setMatField(${i},'name',this.value)"></td>
-          <td class="n"><input type="number" value="${m.baleKg}" onchange="setMatField(${i},'baleKg',this.value)"></td>
+          <td class="n"><input type="number" step="0.005" value="${tv(m.baleKg,3)}" onchange="setMatField(${i},'baleKg',this.value)"></td>
           <td class="n"><input type="number" value="${m.typical||''}" onchange="setMatField(${i},'typical',this.value)"></td>
-          <td class="n">${l ? `<b>${kg(l.avg)}</b> <span class="muted">(${l.loads} load${l.loads>1?'s':''})</span> <button class="small" onclick="useLearned(${i})">Use</button>` : '<span class="muted">no weigh-outs yet</span>'}</td>
+          <td class="n">${l ? `<b>${bt(l.avg)}</b> <span class="muted">(${l.loads} load${l.loads>1?'s':''})</span> <button class="small" onclick="useLearned(${i})">Use</button>` : '<span class="muted">no weigh-outs yet</span>'}</td>
           <td>${S.bays.some(b => b.material===m.code) || S.materials.length<2 ? '' : `<button class="small danger" onclick="delMat(${i})">Delete</button>`}</td>
         </tr>`; }).join('')}
       </table></div>
@@ -691,7 +692,7 @@ function renderMaterials(){
       <div class="row">
         <div><label>Code</label><input id="m-code" placeholder="e.g. PET" style="width:110px"></div>
         <div><label>Name</label><input id="m-name" placeholder="e.g. PET Clear"></div>
-        <div><label>Avg kg / bale</label><input id="m-kg" type="number" style="width:120px"></div>
+        <div><label>Avg t / bale</label><input id="m-kg" type="number" step="0.005" placeholder="0.450" style="width:120px"></div>
         <div><label>Target bales</label><input id="m-typ" type="number" style="width:110px"></div>
         <div><button class="primary" onclick="addMat()">Add</button></div>
       </div>
@@ -699,16 +700,17 @@ function renderMaterials(){
 }
 function setMatField(i, f, v){
   const m = S.materials[i];
-  if (f==='baleKg' || f==='typical'){ const x = num(v); if (x==null || x<0) return toast('Invalid number'); m[f] = x; }
+  if (f==='baleKg'){ const x = toKg(v); if (x==null) return toast('Invalid weight'); m[f] = x; }
+  else if (f==='typical'){ const x = num(v); if (x==null || x<0) return toast('Invalid number'); m[f] = Math.round(x); }
   else m[f] = v;
   save(); render(); toast(`${m.code} updated`);
 }
-function useLearned(i){ const m = S.materials[i], l = learned(m.code); m.baleKg = Math.round(l.avg); save(); render(); toast(`${m.code} now ${m.baleKg} kg/bale`); }
+function useLearned(i){ const m = S.materials[i], l = learned(m.code); m.baleKg = Math.round(l.avg); save(); render(); toast(`${m.code} now ${bt(m.baleKg)} per bale`); }
 function addMat(){
-  const code = $('#m-code').value.trim().toUpperCase(), kgv = num($('#m-kg').value);
+  const code = $('#m-code').value.trim().toUpperCase(), kgv = toKg($('#m-kg').value);
   if (!code) return toast('Enter a code');
   if (S.materials.some(m => m.code===code)) return toast('Code already exists');
-  if (kgv==null || kgv<=0) return toast('Enter avg kg per bale');
+  if (kgv==null || kgv<=0) return toast('Enter avg tonnes per bale');
   const palette = ['#8e44ad','#c0392b','#16a085','#d35400','#2c3e50','#7f8c8d'];
   S.materials.push({ code, name:$('#m-name').value.trim() || code, baleKg:kgv, typical:num($('#m-typ').value)||0, color:palette[S.materials.length % palette.length] });
   save(); render();
@@ -726,16 +728,16 @@ function renderHistory(){
         <h2 style="margin:0">Dispatched loads</h2>
         <button onclick="exportCSV()" ${h.length?'':'disabled'}>Export CSV</button>
       </div>
-      <p class="muted">Add the actual weigh-out when the docket comes through — the actual load and kg/bale are worked out from it and feed the learned averages on Materials.</p>
+      <p class="muted">Add the actual weigh-out when the docket comes through — the actual load and tonnes per bale are worked out from it and feed the learned averages on Materials.</p>
       <div class="tbl-wrap"><table>
         <tr><th>Date</th><th>Bay</th><th>Out</th><th>Mat.</th><th class="n">Bales / target</th><th class="n">Est. load</th><th>Truck</th><th>In</th>
-            <th class="n">Truck tare</th><th class="n">Predicted out</th><th class="n">Actual out</th><th class="n">Actual load</th><th class="n">kg/bale</th><th class="n">Diff</th><th></th></tr>
+            <th class="n">Truck tare</th><th class="n">Predicted out</th><th class="n">Actual out</th><th class="n">Actual load</th><th class="n">t/bale</th><th class="n">Diff</th><th></th></tr>
         ${h.length ? h.map(x => { const c = hCalc(x); return `<tr>
           <td>${fmtDate(x.date)}</td><td>${x.bay}</td><td><b>${esc(x.outId)}</b></td>
           <td><span class="chip" style="--mc:${esc(mat(x.material).color)}">${esc(x.material)}</span></td>
           <td class="n">${x.bales}${x.target ? `<span class="muted"> / ${x.target}</span>` : ''}</td><td class="n">${kg(x.estNet)}</td><td>${esc(x.rego||'—')}</td><td>${esc(x.inId||'—')}</td>
           <td class="n">${kg(c.truckTare)}</td><td class="n"><b>${kg(c.predicted)}</b></td><td class="n">${kg(x.actualOut)}</td>
-          <td class="n">${kg(c.actualNet)}</td><td class="n">${c.perBale!=null?Math.round(c.perBale):'—'}</td>
+          <td class="n">${kg(c.actualNet)}</td><td class="n">${c.perBale!=null?bt(c.perBale):'—'}</td>
           <td class="n ${c.diff==null?'':Math.abs(c.diff)>1000?'neg':'pos'}">${c.diff!=null?signed(c.diff):'—'}</td>
           <td><button class="small" onclick="editHist('${x.id}')">Edit</button></td>
         </tr>`; }).join('') : `<tr><td colspan="15" class="muted">No loads dispatched yet. Use <b>Truck swap</b> on a bay.</td></tr>`}
@@ -749,12 +751,12 @@ function editHist(id){
       <div>
         <label>Truck rego</label><input id="eh-rego" value="${esc(x.rego||'')}" style="width:100%">
         <label>Bales</label><input id="eh-bales" type="number" value="${x.bales}" style="width:100%">
-        <label>Weigh-in gross kg</label><input id="eh-in" type="number" value="${x.weighIn ?? ''}" style="width:100%">
+        <label>Weigh-in gross (t)</label><input id="eh-in" type="number" step="any" value="${tv(x.weighIn)}" style="width:100%">
       </div>
       <div>
-        <label>Actual weigh-out gross kg</label><input id="eh-out" type="number" value="${x.actualOut ?? ''}" style="width:100%">
-        <label>Empty container tare (${esc(x.inId||'none')}) kg</label><input id="eh-intare" type="number" value="${x.inTare||0}" style="width:100%">
-        <label>Full container tare (${esc(x.outId)}) kg</label><input id="eh-outtare" type="number" value="${x.outTare}" style="width:100%">
+        <label>Actual weigh-out gross (t)</label><input id="eh-out" type="number" step="any" value="${tv(x.actualOut)}" style="width:100%">
+        <label>Empty container tare (${esc(x.inId||'none')}) t</label><input id="eh-intare" type="number" step="any" value="${tv(x.inTare||0)}" style="width:100%">
+        <label>Full container tare (${esc(x.outId)}) t</label><input id="eh-outtare" type="number" step="any" value="${tv(x.outTare)}" style="width:100%">
       </div>
     </div>`,
     `<button class="danger" onclick="delHist('${id}')" style="margin-right:auto">Delete load</button>
@@ -765,16 +767,17 @@ function saveHist(id){
   x.rego = normRego($('#eh-rego').value);
   x.bales = Math.max(0, Math.round(num($('#eh-bales').value) ?? x.bales));
   x.estNet = x.bales * x.baleKg;
-  x.weighIn = num($('#eh-in').value);
-  x.actualOut = num($('#eh-out').value);
-  x.inTare = num($('#eh-intare').value) ?? 0;
-  x.outTare = num($('#eh-outtare').value) ?? x.outTare;
+  x.weighIn = toKg($('#eh-in').value);
+  x.actualOut = toKg($('#eh-out').value);
+  x.inTare = toKg($('#eh-intare').value) ?? 0;
+  x.outTare = toKg($('#eh-outtare').value) ?? x.outTare;
   save(); closeDlg(); render(); toast('Load updated');
 }
 function delHist(id){ if (!confirm('Delete this load from history?')) return; S.history = S.history.filter(h => h.id!==id); save(); closeDlg(); render(); }
 function exportCSV(){
-  const head = ['Date','Bay','Container out','Out tare','Material','Bales','Target bales','Avg kg/bale used','Est load kg','Truck rego','Container in','In tare','Weigh-in','Truck tare','Predicted out','Actual out','Actual load','Actual kg/bale','Diff kg'];
-  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, x.outTare, x.material, x.bales, x.target??'', x.baleKg, x.estNet, x.rego, x.inId||'', x.inTare, x.weighIn??'', c.truckTare??'', c.predicted??'', x.actualOut??'', c.actualNet??'', c.perBale!=null?Math.round(c.perBale):'', c.diff??'']; });
+  const T = v => v==null || v==='' ? '' : (v/1000).toFixed(3);
+  const head = ['Date','Bay','Container out','Out tare (t)','Material','Bales','Target bales','Avg t/bale used','Est load (t)','Truck rego','Container in','In tare (t)','Weigh-in (t)','Truck tare (t)','Predicted out (t)','Actual out (t)','Actual load (t)','Actual t/bale','Diff (t)'];
+  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, T(x.outTare), x.material, x.bales, x.target??'', T(x.baleKg), T(x.estNet), x.rego, x.inId||'', T(x.inTare), T(x.weighIn), T(c.truckTare), T(c.predicted), T(x.actualOut), T(c.actualNet), T(c.perBale), T(c.diff)]; });
   const csv = [head, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   download(`container-loads-${new Date().toISOString().slice(0,10)}.csv`, csv, 'text/csv');
 }

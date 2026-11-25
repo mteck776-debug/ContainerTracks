@@ -16,8 +16,8 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 | **Yard** | Six bays. Each shows its container number, tare, material, bale count (−/+1/+5 or type it in), estimated load and gross. |
 | **Truck swap** | Records a full container leaving and the empty one replacing it, and predicts the weigh-out. |
 | **Containers & Trucks** | **Tare by prefix** list (e.g. `AFDB → 4.60 t`), the container register, and the trucks the app has learned. |
-| **Materials** | OCC, MXP, ALI, HDPE C, Steel, each with an average kg/bale and a **target bales** default. You can add more. |
-| **History** | Every dispatched load. Add the actual weigh-out here to see actual load, actual kg/bale and how far off the prediction was. Exports to CSV. |
+| **Materials** | OCC, MXP, ALI, HDPE C, Steel, each with an average tonnes per bale and a **target bales** default. You can add more. |
+| **History** | Every dispatched load. Add the actual weigh-out here to see actual load, actual tonnes per bale and how far off the prediction was. Exports to CSV. |
 | **Backup** | Download or restore a JSON backup. |
 
 ## Target bales
@@ -28,7 +28,7 @@ The bay card shows bales / target, a progress bar and how many bales are left to
 
 ## Tare by prefix
 
-Save one tare per container prefix, for example `AFDB → 4.60 t`. When a container comes in, the app checks the start of its number against the prefix list and uses the longest prefix that matches (`AFDB 123456` → 4,600 kg). You can type tares in tonnes (`4.6`) or kg (`4600`).
+Save one tare per container prefix, for example `AFDB → 4.60 t`. When a container comes in, the app checks the start of its number against the prefix list and uses the longest prefix that matches (`AFDB 123456` → 4.60 t). 
 
 - Leave a container's tare blank to use its prefix tare. Changing a prefix tare later updates every container that uses it.
 - Typing a tare for one container overrides the prefix tare for that container only.
@@ -47,10 +47,10 @@ Truck leaves with full:    predicted weigh-out = truck tare
 
 If you enter a truck rego the app remembers that truck's tare. When the same truck comes back, choosing its rego gives a prediction before it reaches the bridge.
 
-Once a load has an actual weigh-out, the app works out the real average kg/bale for that material. The **Materials** tab shows it under *Learned*, and **Use** makes it the new average.
+Once a load has an actual weigh-out, the app works out the real average tonnes per bale for that material. The **Materials** tab shows it under *Learned*, and **Use** makes it the new average.
 
 ## Data
 
 All data is saved in the browser it's used in (localStorage), so each PC or tablet keeps its own copy. Use **Backup** to move data between devices or keep a safe copy.
 
-The default bale weights (OCC 450, MXP 500, ALI 300, HDPE C 300, Steel 450 kg) are placeholders. Set them to your own figures in **Materials**.
+All weights are shown and entered in **tonnes**: tares, weigh-ins and weigh-outs, and bale weights (e.g. 0.450 t). The default bale weights (OCC 0.450, MXP 0.500, ALI 0.300, HDPE C 0.300, Steel 0.450 t) are placeholders. Set them to your own figures in **Materials**.
