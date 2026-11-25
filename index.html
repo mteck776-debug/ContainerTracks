@@ -1012,6 +1012,8 @@ function renderDaySheet(){
       <p class="muted noprint">Max bales = (max gross − tare) ÷ average bale weight for that commodity. Max gross comes from the truck setup (edit below). Weighed loads feed the learned bale weights on the Materials tab.</p>
     </div>
 
+    ${toFillPanel()}
+
     <div class="panel noprint">
       <h2>Upcoming loads</h2>
       ${upcoming.length ? `<div class="tbl-wrap"><table>
@@ -1052,6 +1054,37 @@ function renderDaySheet(){
 
 const addLabel = d => d === ymd() ? 'Add to today' : 'Add to ' + fmtDay(d).replace(/ \d{4}$/, '');
 function dlDateLabel(){ $('#dl-add').textContent = addLabel($('#dl-date').value || DAY); }
+/* containers sitting in the yard that still need bales (empty first) */
+function toFillPanel(){
+  const list = S.bays.filter(b => b.containerId && !(targetOf(b) && b.bales >= targetOf(b)))
+    .sort((a, b) => (a.bales - b.bales) || (a.n - b.n));
+  const rows = list.map(b => {
+    const m = mat(b.material), tgt = targetOf(b), left = tgt ? tgt - b.bales : null;
+    return `<tr>
+      <td><b>Bay ${b.n}</b></td>
+      <td class="cid" style="font-size:14px">${esc(fmtContNo(b.containerId))}</td>
+      <td><span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span></td>
+      <td>${b.bales === 0 ? '<span class="pill">Empty</span>' : `<span class="pill in">Part filled</span>`}</td>
+      <td class="n">${b.bales}${tgt ? ` / ${tgt}` : ''}</td>
+      <td class="n"><b>${left != null ? left : '—'}</b></td>
+      <td class="n">${left != null ? kg(left * m.baleKg) : '—'}</td>
+      <td>${b.booking ? `🚚 ${esc(b.booking.orderNo||'booked')}` : ''}</td>
+    </tr>`;
+  }).join('');
+  const totLeft = list.reduce((s, b) => s + Math.max(0, (targetOf(b) || 0) - b.bales), 0);
+  return `<div class="panel">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px">
+      <h2 style="margin:0">Containers to fill</h2>
+      <button class="noprint" onclick="document.querySelector('#nav [data-v=yard]').click()">Go to Containers</button>
+    </div>
+    ${list.length ? `<div class="tbl-wrap"><table>
+      <tr><th>Bay</th><th>Container</th><th>Commodity</th><th>State</th><th class="n">Bales / target</th><th class="n">Bales to go</th><th class="n">≈ Tonnes to go</th><th>Booking</th></tr>
+      ${rows}
+      <tr><td colspan="5" class="n"><b>Total</b></td><td class="n"><b>${totLeft}</b></td><td colspan="2"></td></tr>
+    </table></div>`
+    : `<p class="muted">${S.bays.some(b => b.containerId) ? 'Every container in the yard is at its target. ✓' : 'No containers in the yard.'}</p>`}
+  </div>`;
+}
 function dlRegoFill(){
   const r = normRego($('#dl-rego').value), t = S.trucks[r];
   if (t){ if (!$('#dl-tare').value) $('#dl-tare').value = tv(t.tare); if (t.config && cfgOf(t.config)) $('#dl-cfg').value = t.config; }
