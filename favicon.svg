@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- container body -->
+  <rect x="3" y="15" width="58" height="34" rx="3" fill="#e2701a"/>
+  <!-- top/bottom rails -->
+  <rect x="3" y="15" width="58" height="5" rx="2" fill="#b9560f"/>
+  <rect x="3" y="44" width="58" height="5" rx="2" fill="#b9560f"/>
+  <!-- corrugation ribs -->
+  <g fill="#c25c12">
+    <rect x="10" y="21" width="3" height="22"/>
+    <rect x="17" y="21" width="3" height="22"/>
+    <rect x="24" y="21" width="3" height="22"/>
+    <rect x="31" y="21" width="3" height="22"/>
+  </g>
+  <!-- doors -->
+  <rect x="38" y="21" width="20" height="22" fill="#f08a34"/>
+  <rect x="47.4" y="21" width="1.6" height="22" fill="#9a470c"/>
+  <!-- door lock bars -->
+  <g fill="#7a3a0a">
+    <rect x="41" y="21" width="1.6" height="22"/>
+    <rect x="53.5" y="21" width="1.6" height="22"/>
+  </g>
+  <!-- corner castings -->
+  <g fill="#7a3a0a">
+    <rect x="3" y="15" width="5" height="5" rx="1"/>
+    <rect x="56" y="15" width="5" height="5" rx="1"/>
+    <rect x="3" y="44" width="5" height="5" rx="1"/>
+    <rect x="56" y="44" width="5" height="5" rx="1"/>
+  </g>
+</svg>
