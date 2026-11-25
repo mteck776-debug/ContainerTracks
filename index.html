@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ContainerTracks</title>
+<style>
+  :root{
+    --bg:#eef1f4; --panel:#fff; --ink:#18202a; --muted:#66707c; --line:#d8dde3;
+    --accent:#e2701a; --accent-ink:#fff; --good:#1f8a4c; --bad:#c0392b; --warn:#b7791f;
+    --radius:12px; --shadow:0 1px 2px rgba(0,0,0,.06),0 4px 14px rgba(0,0,0,.05);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:#1c2530;color:#fff;position:sticky;top:0;z-index:5}
+  .bar-top{display:flex;align-items:center;gap:14px;padding:10px 18px;flex-wrap:wrap}
+  .brand{font-weight:800;letter-spacing:.3px;font-size:18px;display:flex;align-items:center;gap:8px}
+  .brand i{display:inline-block;width:22px;height:14px;border:3px solid var(--accent);border-radius:2px}
+  nav{display:flex;gap:4px;flex-wrap:wrap}
+  nav button{background:transparent;color:#c9d2dc;border:0;padding:8px 12px;border-radius:8px;font:inherit;cursor:pointer}
+  nav button.on{background:#2e3a48;color:#fff}
+  .spacer{flex:1}
+  main{max-width:1280px;margin:0 auto;padding:18px}
+  h2{margin:0 0 12px;font-size:20px}
+  h3{margin:0 0 8px;font-size:16px}
+  .muted{color:var(--muted);font-size:13px}
+  button,.btn{font:inherit;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:8px;padding:7px 12px;cursor:pointer}
+  button:hover{border-color:#aab3bd}
+  button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+  button.danger{color:var(--bad)}
+  button.small{padding:4px 8px;font-size:13px}
+  input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:#fff;color:var(--ink);min-width:0}
+  input:focus,select:focus{outline:2px solid #f3b27f;border-color:var(--accent)}
+  label{display:block;font-size:13px;color:var(--muted);margin:8px 0 3px}
+  .panel{background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
+
+  /* summary */
+  .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+  .stat{background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px 14px}
+  .stat b{display:block;font-size:24px;font-variant-numeric:tabular-nums}
+  .stat span{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+
+  /* yard */
+  .yard{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
+  .bay{background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;border-top:6px solid var(--mc,#999);display:flex;flex-direction:column;gap:8px}
+  .bay.empty{border-top-color:#c3c9d0;background:repeating-linear-gradient(45deg,#fff,#fff 10px,#f6f7f9 10px,#f6f7f9 20px);align-items:center;justify-content:center;min-height:250px;text-align:center}
+  .bay-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .bay-no{font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+  .chip{display:inline-block;padding:2px 9px;border-radius:999px;color:#fff;background:var(--mc,#888);font-weight:700;font-size:12px}
+  .bay-head select{font-weight:700;padding:4px 8px}
+  .cid{font-size:19px;font-weight:700;font-family:ui-monospace,Consolas,monospace;letter-spacing:.5px}
+  .bales{display:flex;align-items:center;gap:6px}
+  .bales input{width:84px;text-align:center;font-size:26px;font-weight:800;padding:4px}
+  .bales button{min-width:44px;font-size:17px;font-weight:700;padding:8px}
+  .gauge{height:8px;background:#e7eaee;border-radius:9px;overflow:hidden}
+  .gauge i{display:block;height:100%;background:var(--mc,#888)}
+  .figs{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:14px;margin:0}
+  .figs dt{color:var(--muted)} .figs dd{margin:0;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+  .figs .big{font-size:17px}
+  .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
+  .actions .primary{flex:1}
+
+  /* tables */
+  .tbl-wrap{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th,td{padding:8px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:600}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  td input{width:110px;padding:5px 7px}
+  td input.wide{width:200px}
+  .pos{color:var(--good)} .neg{color:var(--bad)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .row > div{display:flex;flex-direction:column}
+
+  /* dialog */
+  dialog{border:0;border-radius:14px;padding:0;width:min(860px,96vw);box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  dialog::backdrop{background:rgba(20,26,34,.55)}
+  .dlg-h{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .dlg-h h2{margin:0;flex:1}
+  .dlg-b{padding:16px 18px;max-height:72vh;overflow:auto}
+  .dlg-f{padding:12px 18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:700px){.cols{grid-template-columns:1fr}}
+  fieldset{border:1px solid var(--line);border-radius:10px;padding:8px 14px 14px;margin:0}
+  legend{font-weight:700;padding:0 6px}
+  fieldset input,fieldset select{width:100%}
+  .calc{margin-top:16px;background:#f6f8fa;border:1px solid var(--line);border-radius:10px;padding:12px 16px}
+  .calc table td{border:0;padding:3px 6px}
+  .calc .op{width:18px;color:var(--muted);font-weight:700}
+  .calc tr.total td{border-top:2px solid var(--ink);font-weight:800;font-size:18px;padding-top:6px}
+  .calc tr.sub td{border-top:1px solid #c5ccd4;font-weight:700}
+  .predict{font-size:30px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums}
+  .note{background:#fff7e6;border:1px solid #f2d39b;color:#7a5410;border-radius:8px;padding:8px 10px;font-size:13px;margin-top:8px}
+  .hidden{display:none !important}
+
+  #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1c2530;color:#fff;padding:10px 16px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
+  #toast.show{opacity:1}
+  @media print{header,.actions,nav{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar-top">
+    <div class="brand"><i></i>ContainerTracks</div>
+    <nav id="nav">
+      <button data-v="yard" class="on">Yard</button>
+      <button data-v="containers">Containers &amp; Trucks</button>
+      <button data-v="materials">Materials</button>
+      <button data-v="history">History</button>
+      <button data-v="backup">Backup</button>
+    </nav>
+    <div class="spacer"></div>
+    <button class="primary" onclick="openSwap()">Truck swap</button>
+  </div>
+</header>
+<main id="main"></main>
+
+<dialog id="dlg">
+  <div class="dlg-h"><h2 id="dlg-title"></h2><button type="button" onclick="closeDlg()">✕</button></div>
+  <div class="dlg-b" id="dlg-body"></div>
+  <div class="dlg-f" id="dlg-foot"></div>
+</dialog>
+<div id="toast"></div>
+
+<script>
+/* =========================================================
+   ContainerTracks — yard container & bale tracker
+   All data stays in this browser (localStorage). Use Backup to move it.
+   ========================================================= */
+const KEY = 'containertracks:v1';
+const BAY_COUNT = 6;
+
+const newBay = n => ({ n, containerId:null, material:'OCC', bales:0, startedAt:null, log:[] });
+const defaults = () => ({
+  materials: [
+    { code:'OCC',    name:'Cardboard',    baleKg:450, typical:48, color:'#9a6634' },
+    { code:'MXP',    name:'Mixed Paper',  baleKg:500, typical:44, color:'#2f6db5' },
+    { code:'ALI',    name:'Aluminium',    baleKg:300, typical:60, color:'#7d8b99' },
+    { code:'HDPE C', name:'HDPE Colour',  baleKg:300, typical:50, color:'#1f9a68' },
+    { code:'STEEL',  name:'Steel',        baleKg:450, typical:40, color:'#3d4652' },
+  ],
+  containers: [],          // {id, tare, notes, outSince}
+  bays: Array.from({length:BAY_COUNT}, (_,i) => newBay(i+1)),
+  trucks: {},              // rego -> {tare, updated}
+  history: []              // dispatched loads
+});
+
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = v => { if (v==null) return null; const x = parseFloat(String(v).replace(/[, ]/g,'')); return isNaN(x) ? null : x; };
+const kg  = n => (n==null || isNaN(n)) ? '—' : Math.round(n).toLocaleString('en-AU') + ' kg';
+const tn  = n => (n==null || isNaN(n)) ? '—' : (n/1000).toFixed(2) + ' t';
+const signed = n => (n>0?'+':'') + Math.round(n).toLocaleString('en-AU') + ' kg';
+const normId = s => String(s||'').toUpperCase().replace(/\s+/g,'').trim();
+const normRego = s => String(s||'').toUpperCase().replace(/\s+/g,'').trim();
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+const fmtDate = iso => iso ? new Date(iso).toLocaleString('en-AU',{day:'2-digit',month:'short',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2200); }
+
+/* ---------- state ---------- */
+let S;
+function load(){
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(KEY)); } catch(e) {}
+  S = Object.assign(defaults(), d || {});
+  for (let i = S.bays.length; i < BAY_COUNT; i++) S.bays.push(newBay(i+1));
+}
+function save(){
+  try { localStorage.setItem(KEY, JSON.stringify(S)); }
+  catch(e){ toast('Could not save — browser storage is blocked'); }
+}
+
+const mat  = code => S.materials.find(m => m.code === code) || { code, name:code, baleKg:0, typical:0, color:'#888' };
+const cont = id => S.containers.find(c => c.id === id);
+const bayOf = id => S.bays.find(b => b.containerId === id);
+const estNet = b => (b.bales||0) * (mat(b.material).baleKg||0);
+const spares = () => S.containers.filter(c => !bayOf(c.id));
+function where(c){
+  const b = bayOf(c.id);
+  if (b) return `Bay ${b.n}`;
+  if (c.outSince) return `Out on truck (${fmtDate(c.outSince)})`;
+  return 'Spare / not placed';
+}
+const matOptions = sel => S.materials.map(m => `<option value="${esc(m.code)}" ${m.code===sel?'selected':''}>${esc(m.code)} — ${esc(m.name)}</option>`).join('');
+
+/* history maths — derived, so editing weigh-in / weigh-out later just works */
+function hCalc(h){
+  const truckTare = h.weighIn!=null ? h.weighIn - (h.inTare||0) : (h.truckTare ?? null);
+  const predicted = truckTare!=null ? truckTare + h.outTare + h.estNet : null;
+  const actualNet = (h.actualOut!=null && truckTare!=null) ? h.actualOut - truckTare - h.outTare : null;
+  const perBale   = (actualNet!=null && h.bales>0) ? actualNet / h.bales : null;
+  const diff      = (h.actualOut!=null && predicted!=null) ? h.actualOut - predicted : null;
+  return { truckTare, predicted, actualNet, perBale, diff };
+}
+function learned(code){
+  let net=0, bales=0, loads=0;
+  S.history.forEach(h => {
+    if (h.material !== code) return;
+    const c = hCalc(h);
+    if (c.actualNet!=null && h.bales>0){ net += c.actualNet; bales += h.bales; loads++; }
+  });
+  return loads ? { avg: net/bales, loads } : null;
+}
+
+/* ---------- routing ---------- */
+let view = 'yard';
+$('#nav').addEventListener('click', e => {
+  const b = e.target.closest('button[data-v]'); if (!b) return;
+  view = b.dataset.v;
+  document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('on', x===b));
+  render();
+});
+function render(){
+  ({ yard:renderYard, containers:renderContainers, materials:renderMaterials, history:renderHistory, backup:renderBackup })[view]();
+}
+
+/* =========================================================
+   YARD
+   ========================================================= */
+function renderYard(){
+  let bales=0, net=0, placed=0;
+  S.bays.forEach(b => { if (b.containerId){ placed++; bales += b.bales; net += estNet(b); } });
+  const now = new Date();
+  const monthLoads = S.history.filter(h => { const d=new Date(h.date); return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear(); });
+  const monthNet = monthLoads.reduce((s,h) => { const c=hCalc(h); return s + (c.actualNet ?? h.estNet); }, 0);
+
+  $('#main').innerHTML = `
+    <div class="summary">
+      <div class="stat"><span>Containers in yard</span><b>${placed} / ${BAY_COUNT}</b></div>
+      <div class="stat"><span>Bales on site</span><b>${bales.toLocaleString('en-AU')}</b></div>
+      <div class="stat"><span>Est. weight on site</span><b>${tn(net)}</b></div>
+      <div class="stat"><span>Loads out this month</span><b>${monthLoads.length}</b></div>
+      <div class="stat"><span>Tonnes out this month</span><b>${tn(monthNet)}</b></div>
+    </div>
+    <div class="yard">${S.bays.map(bayCard).join('')}</div>`;
+}
+
+function bayCard(b){
+  const c = cont(b.containerId);
+  if (!c) return `
+    <div class="bay empty">
+      <div class="bay-no">Bay ${b.n}</div>
+      <div style="font-size:18px;font-weight:700;margin:6px 0">No container</div>
+      <button class="primary" onclick="openPlace(${b.n})">Place container</button>
+    </div>`;
+  const m = mat(b.material), net = estNet(b);
+  const pct = m.typical ? Math.min(100, b.bales / m.typical * 100) : 0;
+  return `
+    <div class="bay" style="--mc:${esc(m.color)}">
+      <div class="bay-head">
+        <span class="bay-no">Bay ${b.n}</span>
+        <select onchange="setMat(${b.n},this.value)" title="Material">${S.materials.map(x=>`<option value="${esc(x.code)}" ${x.code===b.material?'selected':''}>${esc(x.code)}</option>`).join('')}</select>
+      </div>
+      <div><div class="cid">${esc(c.id)}</div><div class="muted">Tare ${kg(c.tare)}${b.startedAt?` · loading since ${fmtDate(b.startedAt)}`:''}</div></div>
+      <div class="bales">
+        <button onclick="adj(${b.n},-1)" title="Remove a bale">−</button>
+        <input type="number" min="0" inputmode="numeric" value="${b.bales}" onchange="setBales(${b.n},this.value)" aria-label="Bales">
+        <button onclick="adj(${b.n},1)">+1</button>
+        <button onclick="adj(${b.n},5)">+5</button>
+      </div>
+      <div class="gauge"><i style="width:${pct}%"></i></div>
+      <div class="muted">${b.bales} bales${m.typical?` of ~${m.typical} typical`:''} · ${m.baleKg} kg avg/bale</div>
+      <dl class="figs">
+        <dt>Est. load</dt><dd class="big">${kg(net)}</dd>
+        <dt>Est. gross (load + tare)</dt><dd>${kg(net + c.tare)}</dd>
+      </dl>
+      <div class="actions">
+        <button class="primary" onclick="openSwap(${b.n})">Truck swap</button>
+        <button onclick="openPlace(${b.n})">Change</button>
+      </div>
+    </div>`;
+}
+
+function bay(n){ return S.bays.find(b => b.n === +n); }
+function adj(n, d){
+  const b = bay(n);
+  const nb = Math.max(0, (b.bales||0) + d);
+  if (nb === b.bales) return;
+  if (!b.startedAt && nb > 0) b.startedAt = new Date().toISOString();
+  b.log.push({ t:new Date().toISOString(), d:nb - b.bales });
+  b.bales = nb; save(); render();
+}
+function setBales(n, v){
+  const x = Math.max(0, Math.round(num(v) ?? 0));
+  adj(n, x - bay(n).bales); render();
+}
+function setMat(n, code){ bay(n).material = code; save(); render(); }
+
+/* place / change container in a bay */
+function openPlace(n){
+  const b = bay(n), cur = cont(b.containerId);
+  const opts = spares().map(c => `<option value="${esc(c.id)}">${esc(c.id)} — tare ${kg(c.tare)}</option>`).join('');
+  openDlg(`Bay ${n} — ${cur ? 'change container' : 'place container'}`, `
+    ${cur ? `<p>Currently: <b>${esc(cur.id)}</b> with ${b.bales} bales. Changing it here does <b>not</b> record a dispatch — use <b>Truck swap</b> for that. Use this to fix a mistake or move a container.</p>` : ''}
+    <div class="cols">
+      <div>
+        <label>Container</label>
+        <select id="pl-sel" onchange="$('#pl-new').classList.toggle('hidden', this.value!=='__new')" style="width:100%">
+          ${cur ? '<option value="__none">— leave bay empty —</option>' : ''}
+          ${opts}
+          <option value="__new" ${opts?'':'selected'}>+ New container…</option>
+        </select>
+        <div id="pl-new" class="${opts?'hidden':''}">
+          <label>Container number</label><input id="pl-id" placeholder="e.g. TCLU 123456 7" style="width:100%">
+          <label>Tare (kg) — printed on the door</label><input id="pl-tare" type="number" inputmode="numeric" placeholder="e.g. 2200" style="width:100%">
+        </div>
+      </div>
+      <div>
+        <label>Material</label><select id="pl-mat" style="width:100%">${matOptions(b.material)}</select>
+        <label>Bales already in it</label><input id="pl-bales" type="number" min="0" value="${cur ? b.bales : 0}" style="width:100%">
+      </div>
+    </div>`,
+    `<button onclick="closeDlg()">Cancel</button><button class="primary" onclick="doPlace(${n})">Save</button>`);
+}
+function doPlace(n){
+  const b = bay(n), sel = $('#pl-sel').value;
+  let id = null;
+  if (sel === '__new'){
+    id = normId($('#pl-id').value); const tare = num($('#pl-tare').value);
+    if (!id) return toast('Enter a container number');
+    if (tare==null || tare<=0) return toast('Enter the container tare');
+    const ex = cont(id);
+    if (ex){ if (bayOf(id) && bayOf(id).n !== +n) return toast(`${id} is already in Bay ${bayOf(id).n}`); ex.tare = tare; }
+    else S.containers.push({ id, tare, notes:'' });
+  } else if (sel !== '__none') id = sel;
+  if (id){ const c = cont(id); delete c.outSince; }
+  b.containerId = id;
+  b.material = $('#pl-mat').value;
+  const bl = Math.max(0, Math.round(num($('#pl-bales').value) ?? 0));
+  if (bl !== b.bales){ b.log.push({ t:new Date().toISOString(), d:bl - b.bales }); b.bales = bl; }
+  if (!id){ b.bales = 0; b.startedAt = null; b.log = []; }
+  else if (bl > 0 && !b.startedAt) b.startedAt = new Date().toISOString();
+  save(); closeDlg(); render(); toast(`Bay ${n} updated`);
+}
+
+/* =========================================================
+   TRUCK SWAP — the weight prediction
+   Truck arrives with an empty:   weigh-in  = truck tare + empty tare
+                                  truck tare = weigh-in − empty tare
+   Truck leaves with the full:    weigh-out ≈ truck tare + full tare + est. load
+   ========================================================= */
+let SW = null;
+function openSwap(n){
+  const full = S.bays.filter(b => b.containerId);
+  if (!full.length) return toast('No containers in the yard to swap out');
+  n = n ?? full[0].n;
+  const b = bay(n); if (!b.containerId) return openPlace(n);
+  const c = cont(b.containerId), m = mat(b.material);
+  SW = { n };
+  const spareOpts = spares().map(x => `<option value="${esc(x.id)}">${esc(x.id)} — tare ${kg(x.tare)}</option>`).join('');
+  const regos = Object.keys(S.trucks).sort().map(r => `<option value="${esc(r)}">`).join('');
+
+  openDlg('Truck swap', `
+    <div class="row" style="margin-bottom:10px">
+      <div><label>Bay going out</label>
+        <select onchange="openSwap(+this.value)">${full.map(x => `<option value="${x.n}" ${x.n===+n?'selected':''}>Bay ${x.n} — ${esc(x.containerId)} (${esc(x.material)}, ${x.bales} bales)</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="cols">
+      <fieldset>
+        <legend>Going out — full</legend>
+        <div class="cid">${esc(c.id)}</div>
+        <div class="muted">Tare ${kg(c.tare)} · <span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span> ${m.baleKg} kg avg/bale</div>
+        <label>Bales in container</label>
+        <input id="sw-bales" type="number" min="0" inputmode="numeric" value="${b.bales}" oninput="swCalc()">
+      </fieldset>
+      <fieldset>
+        <legend>Coming in — empty</legend>
+        <label>Truck rego</label>
+        <input id="sw-rego" list="sw-regos" placeholder="e.g. 123ABC" oninput="swCalc()" autocomplete="off">
+        <datalist id="sw-regos">${regos}</datalist>
+        <label>Empty container on the truck</label>
+        <select id="sw-in" onchange="$('#sw-new').classList.toggle('hidden', this.value!=='__new'); swCalc()">
+          <option value="">— none, truck came in bare —</option>
+          ${spareOpts}
+          <option value="__new" ${spareOpts?'':'selected'}>+ New container…</option>
+        </select>
+        <div id="sw-new" class="${spareOpts?'hidden':''}">
+          <label>Container number</label><input id="sw-new-id" oninput="swCalc()" placeholder="e.g. MSKU 765432 1">
+          <label>Tare (kg)</label><input id="sw-new-tare" type="number" inputmode="numeric" oninput="swCalc()" placeholder="from container door">
+        </div>
+        <label>Weigh-in gross (truck + empty) kg</label>
+        <input id="sw-win" type="number" inputmode="numeric" oninput="swCalc()" placeholder="weighbridge reading">
+        <label>Material to load in the empty</label>
+        <select id="sw-mat">${matOptions(b.material)}</select>
+      </fieldset>
+    </div>
+    <div class="calc" id="sw-calc"></div>
+    <div class="row" style="margin-top:12px">
+      <div><label>Actual weigh-out kg (optional — can add later in History)</label>
+      <input id="sw-out" type="number" inputmode="numeric" oninput="swCalc()" placeholder="weighbridge reading"></div>
+    </div>
+    <div id="sw-actual"></div>`,
+    `<button onclick="closeDlg()">Cancel</button><button class="primary" onclick="doSwap()">Confirm swap</button>`);
+  swCalc();
+}
+
+function swRead(){
+  const b = bay(SW.n), c = cont(b.containerId), m = mat(b.material);
+  const bales = Math.max(0, Math.round(num($('#sw-bales').value) ?? 0));
+  const net = bales * m.baleKg;
+  const sel = $('#sw-in').value;
+  let inId = null, inTare = 0, isNew = false;
+  if (sel === '__new'){ isNew = true; inId = normId($('#sw-new-id').value); inTare = num($('#sw-new-tare').value); }
+  else if (sel){ inId = sel; inTare = cont(sel).tare; }
+  const rego = normRego($('#sw-rego').value);
+  const weighIn = num($('#sw-win').value);
+  let truckTare = null, src = '';
+  if (weighIn!=null && inTare!=null){ truckTare = weighIn - inTare; src = 'in'; }
+  else if (rego && S.trucks[rego]){ truckTare = S.trucks[rego].tare; src = 'known'; }
+  const predicted = truckTare!=null ? truckTare + c.tare + net : null;
+  const actualOut = num($('#sw-out').value);
+  return { b, c, m, bales, net, inId, inTare, isNew, rego, weighIn, truckTare, src, predicted, actualOut };
+}
+
+function swCalc(){
+  const r = swRead();
+  const rows = [];
+  if (r.src === 'in'){
+    rows.push(['', 'Weigh-in (truck + empty)', kg(r.weighIn)]);
+    rows.push(['−', `Empty container tare${r.inId?` (${esc(r.inId)})`:''}`, kg(r.inTare)]);
+    rows.push(['=', 'Truck tare', kg(r.truckTare), 'sub']);
+  } else if (r.src === 'known'){
+    rows.push(['', `Truck tare — last known for ${esc(r.rego)} (${fmtDate(S.trucks[r.rego].updated)})`, kg(r.truckTare), 'sub']);
+  } else {
+    rows.push(['', 'Truck tare', '<span class="muted">enter weigh-in</span>', 'sub']);
+  }
+  rows.push(['+', `Full container tare (${esc(r.c.id)})`, kg(r.c.tare)]);
+  rows.push(['+', `Est. load (${r.bales} × ${r.m.baleKg} kg ${esc(r.m.code)})`, kg(r.net)]);
+  $('#sw-calc').innerHTML = `
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <table style="width:auto">${rows.map(([op,l,v,cls]) => `<tr class="${cls||''}"><td class="op">${op}</td><td>${l}</td><td class="n">${v}</td></tr>`).join('')}
+        <tr class="total"><td class="op">=</td><td>Predicted weigh-out</td><td class="n">${kg(r.predicted)}</td></tr></table>
+      <div style="text-align:right"><div class="muted">Expect on the weighbridge</div><div class="predict">${r.predicted!=null ? kg(r.predicted) : '—'}</div>
+      ${r.predicted!=null ? `<div class="muted">${tn(r.predicted)}</div>` : ''}</div>
+    </div>
+    ${r.weighIn!=null && r.inTare!=null && r.weighIn < r.inTare ? '<div class="note">Weigh-in is less than the empty container tare — check the numbers.</div>' : ''}
+    ${r.weighIn==null && !r.src ? '<div class="note">Enter the weigh-in to work out the truck tare' + (Object.keys(S.trucks).length ? ', or pick a known truck rego.' : '.') + '</div>' : ''}`;
+
+  let a = '';
+  if (r.actualOut!=null && r.truckTare!=null){
+    const actNet = r.actualOut - r.truckTare - r.c.tare;
+    const per = r.bales ? actNet / r.bales : null;
+    const diff = r.actualOut - r.predicted;
+    a = `<div class="calc"><table style="width:auto">
+      <tr><td>Actual load (weigh-out − truck tare − container tare)</td><td class="n"><b>${kg(actNet)}</b></td></tr>
+      <tr><td>Actual average per bale</td><td class="n"><b>${per!=null ? kg(per) : '—'}</b> <span class="muted">(using ${r.m.baleKg})</span></td></tr>
+      <tr><td>Difference from prediction</td><td class="n ${Math.abs(diff)>1000?'neg':'pos'}"><b>${signed(diff)}</b> <span class="muted">(${(diff/r.predicted*100).toFixed(1)}%)</span></td></tr>
+    </table></div>`;
+  }
+  $('#sw-actual').innerHTML = a;
+}
+
+function doSwap(){
+  const r = swRead();
+  if (r.isNew){
+    if (!r.inId) return toast('Enter the incoming container number');
+    if (r.inTare==null || r.inTare<=0) return toast('Enter the incoming container tare');
+    if (bayOf(r.inId)) return toast(`${r.inId} is already in Bay ${bayOf(r.inId).n}`);
+    if (r.inId === r.c.id) return toast('Incoming container is the same as the outgoing one');
+  }
+  const now = new Date().toISOString();
+  S.history.unshift({
+    id: uid(), date: now, bay: r.b.n, rego: r.rego || '',
+    outId: r.c.id, outTare: r.c.tare, material: r.m.code, bales: r.bales, baleKg: r.m.baleKg, estNet: r.net,
+    inId: r.inId, inTare: r.inTare || 0, weighIn: r.weighIn,
+    truckTare: r.truckTare, predicted: r.predicted, actualOut: r.actualOut, startedAt: r.b.startedAt
+  });
+  if (r.rego && r.weighIn!=null && r.truckTare!=null) S.trucks[r.rego] = { tare: r.truckTare, updated: now };
+  r.c.outSince = now;
+  if (r.inId){
+    let ic = cont(r.inId);
+    if (!ic){ ic = { id:r.inId, tare:r.inTare, notes:'' }; S.containers.push(ic); }
+    else if (r.isNew) ic.tare = r.inTare;
+    delete ic.outSince;
+  }
+  const b = r.b;
+  b.containerId = r.inId; b.material = $('#sw-mat').value; b.bales = 0; b.startedAt = null; b.log = [];
+  save(); closeDlg(); render();
+  toast(`${r.c.id} dispatched${r.inId ? ` · ${r.inId} now in Bay ${b.n}` : ''}`);
+}
+
+/* =========================================================
+   CONTAINERS & TRUCKS
+   ========================================================= */
+function renderContainers(){
+  const list = [...S.containers].sort((a,b) => (bayOf(a.id)?.n ?? 99) - (bayOf(b.id)?.n ?? 99) || a.id.localeCompare(b.id));
+  const trucks = Object.entries(S.trucks).sort((a,b) => a[0].localeCompare(b[0]));
+  $('#main').innerHTML = `
+    <div class="panel">
+      <h2>Container register</h2>
+      <p class="muted">Tares are printed on each container door. Every truck-swap prediction uses these, so keep them right.</p>
+      <div class="row" style="margin-bottom:14px">
+        <div><label>Container number</label><input id="c-id" placeholder="e.g. TCLU 123456 7"></div>
+        <div><label>Tare (kg)</label><input id="c-tare" type="number" inputmode="numeric" placeholder="2200"></div>
+        <div><label>Notes</label><input id="c-notes" placeholder="optional" style="width:220px"></div>
+        <div><button class="primary" onclick="addContainer()">Add container</button></div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <tr><th>Container</th><th class="n">Tare (kg)</th><th>Where</th><th>Notes</th><th></th></tr>
+        ${list.length ? list.map(c => `<tr>
+          <td><b class="cid" style="font-size:15px">${esc(c.id)}</b></td>
+          <td class="n"><input type="number" value="${c.tare}" onchange="setTare('${esc(c.id)}',this.value)"></td>
+          <td>${esc(where(c))}</td>
+          <td><input class="wide" value="${esc(c.notes||'')}" onchange="setNotes('${esc(c.id)}',this.value)"></td>
+          <td>${bayOf(c.id) ? '' : `<button class="small danger" onclick="delContainer('${esc(c.id)}')">Delete</button>`}</td>
+        </tr>`).join('') : `<tr><td colspan="5" class="muted">No containers yet — add them here or straight from a bay.</td></tr>`}
+      </table></div>
+    </div>
+    <div class="panel">
+      <h2>Known trucks</h2>
+      <p class="muted">Each truck's tare is saved from its last weigh-in (weigh-in − empty container tare). If a truck comes back, picking its rego gives a prediction before it even hits the bridge.</p>
+      <div class="tbl-wrap"><table>
+        <tr><th>Rego</th><th class="n">Tare (kg)</th><th>Last updated</th><th></th></tr>
+        ${trucks.length ? trucks.map(([r,t]) => `<tr>
+          <td><b>${esc(r)}</b></td>
+          <td class="n"><input type="number" value="${Math.round(t.tare)}" onchange="setTruck('${esc(r)}',this.value)"></td>
+          <td>${fmtDate(t.updated)}</td>
+          <td><button class="small danger" onclick="delTruck('${esc(r)}')">Delete</button></td>
+        </tr>`).join('') : `<tr><td colspan="4" class="muted">Trucks are added automatically when you do a swap with a rego and weigh-in.</td></tr>`}
+      </table></div>
+    </div>`;
+}
+function addContainer(){
+  const id = normId($('#c-id').value), tare = num($('#c-tare').value);
+  if (!id) return toast('Enter a container number');
+  if (tare==null || tare<=0) return toast('Enter the tare');
+  if (cont(id)) return toast(`${id} is already in the register`);
+  S.containers.push({ id, tare, notes: $('#c-notes').value.trim() });
+  save(); render(); toast(`${id} added`);
+}
+function setTare(id, v){ const t = num(v); if (t==null||t<=0) return toast('Invalid tare'); cont(id).tare = t; save(); toast(`${id} tare updated`); }
+function setNotes(id, v){ cont(id).notes = v.trim(); save(); }
+function delContainer(id){ if (!confirm(`Delete ${id} from the register? History is kept.`)) return; S.containers = S.containers.filter(c => c.id!==id); save(); render(); }
+function setTruck(r, v){ const t = num(v); if (t==null) return; S.trucks[r] = { tare:t, updated:new Date().toISOString() }; save(); render(); }
+function delTruck(r){ delete S.trucks[r]; save(); render(); }
+
+/* =========================================================
+   MATERIALS
+   ========================================================= */
+function renderMaterials(){
+  $('#main').innerHTML = `
+    <div class="panel">
+      <h2>Materials &amp; average bale weights</h2>
+      <p class="muted">The yard estimates use <b>avg kg/bale</b>. Once loads have an actual weigh-out in History, the <b>learned</b> column shows the real average — hit <b>Use</b> to adopt it.
+      "Typical bales" just drives the fill bar on each bay.</p>
+      <div class="tbl-wrap"><table>
+        <tr><th>Colour</th><th>Code</th><th>Name</th><th class="n">Avg kg / bale</th><th class="n">Typical bales / container</th><th class="n">Learned from weigh-outs</th><th></th></tr>
+        ${S.materials.map((m,i) => { const l = learned(m.code); return `<tr>
+          <td><input type="color" value="${esc(m.color)}" onchange="setMatField(${i},'color',this.value)" style="width:44px;padding:2px"></td>
+          <td><span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span></td>
+          <td><input class="wide" value="${esc(m.name)}" onchange="setMatField(${i},'name',this.value)"></td>
+          <td class="n"><input type="number" value="${m.baleKg}" onchange="setMatField(${i},'baleKg',this.value)"></td>
+          <td class="n"><input type="number" value="${m.typical||''}" onchange="setMatField(${i},'typical',this.value)"></td>
+          <td class="n">${l ? `<b>${kg(l.avg)}</b> <span class="muted">(${l.loads} load${l.loads>1?'s':''})</span> <button class="small" onclick="useLearned(${i})">Use</button>` : '<span class="muted">no weigh-outs yet</span>'}</td>
+          <td>${S.bays.some(b => b.material===m.code) || S.materials.length<2 ? '' : `<button class="small danger" onclick="delMat(${i})">Delete</button>`}</td>
+        </tr>`; }).join('')}
+      </table></div>
+      <h3 style="margin-top:18px">Add a material</h3>
+      <div class="row">
+        <div><label>Code</label><input id="m-code" placeholder="e.g. PET" style="width:110px"></div>
+        <div><label>Name</label><input id="m-name" placeholder="e.g. PET Clear"></div>
+        <div><label>Avg kg / bale</label><input id="m-kg" type="number" style="width:120px"></div>
+        <div><label>Typical bales</label><input id="m-typ" type="number" style="width:110px"></div>
+        <div><button class="primary" onclick="addMat()">Add</button></div>
+      </div>
+    </div>`;
+}
+function setMatField(i, f, v){
+  const m = S.materials[i];
+  if (f==='baleKg' || f==='typical'){ const x = num(v); if (x==null || x<0) return toast('Invalid number'); m[f] = x; }
+  else m[f] = v;
+  save(); render(); toast(`${m.code} updated`);
+}
+function useLearned(i){ const m = S.materials[i], l = learned(m.code); m.baleKg = Math.round(l.avg); save(); render(); toast(`${m.code} now ${m.baleKg} kg/bale`); }
+function addMat(){
+  const code = $('#m-code').value.trim().toUpperCase(), kgv = num($('#m-kg').value);
+  if (!code) return toast('Enter a code');
+  if (S.materials.some(m => m.code===code)) return toast('Code already exists');
+  if (kgv==null || kgv<=0) return toast('Enter avg kg per bale');
+  const palette = ['#8e44ad','#c0392b','#16a085','#d35400','#2c3e50','#7f8c8d'];
+  S.materials.push({ code, name:$('#m-name').value.trim() || code, baleKg:kgv, typical:num($('#m-typ').value)||0, color:palette[S.materials.length % palette.length] });
+  save(); render();
+}
+function delMat(i){ if (!confirm(`Delete ${S.materials[i].code}? History keeps its records.`)) return; S.materials.splice(i,1); save(); render(); }
+
+/* =========================================================
+   HISTORY
+   ========================================================= */
+function renderHistory(){
+  const h = S.history;
+  $('#main').innerHTML = `
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="margin:0">Dispatched loads</h2>
+        <button onclick="exportCSV()" ${h.length?'':'disabled'}>Export CSV</button>
+      </div>
+      <p class="muted">Add the actual weigh-out when the docket comes through — the actual load and kg/bale are worked out from it and feed the learned averages on Materials.</p>
+      <div class="tbl-wrap"><table>
+        <tr><th>Date</th><th>Bay</th><th>Out</th><th>Mat.</th><th class="n">Bales</th><th class="n">Est. load</th><th>Truck</th><th>In</th>
+            <th class="n">Truck tare</th><th class="n">Predicted out</th><th class="n">Actual out</th><th class="n">Actual load</th><th class="n">kg/bale</th><th class="n">Diff</th><th></th></tr>
+        ${h.length ? h.map(x => { const c = hCalc(x); return `<tr>
+          <td>${fmtDate(x.date)}</td><td>${x.bay}</td><td><b>${esc(x.outId)}</b></td>
+          <td><span class="chip" style="--mc:${esc(mat(x.material).color)}">${esc(x.material)}</span></td>
+          <td class="n">${x.bales}</td><td class="n">${kg(x.estNet)}</td><td>${esc(x.rego||'—')}</td><td>${esc(x.inId||'—')}</td>
+          <td class="n">${kg(c.truckTare)}</td><td class="n"><b>${kg(c.predicted)}</b></td><td class="n">${kg(x.actualOut)}</td>
+          <td class="n">${kg(c.actualNet)}</td><td class="n">${c.perBale!=null?Math.round(c.perBale):'—'}</td>
+          <td class="n ${c.diff==null?'':Math.abs(c.diff)>1000?'neg':'pos'}">${c.diff!=null?signed(c.diff):'—'}</td>
+          <td><button class="small" onclick="editHist('${x.id}')">Edit</button></td>
+        </tr>`; }).join('') : `<tr><td colspan="15" class="muted">No loads dispatched yet. Use <b>Truck swap</b> on a bay.</td></tr>`}
+      </table></div>
+    </div>`;
+}
+function editHist(id){
+  const x = S.history.find(h => h.id===id);
+  openDlg(`Load ${x.outId} — ${fmtDate(x.date)}`, `
+    <div class="cols">
+      <div>
+        <label>Truck rego</label><input id="eh-rego" value="${esc(x.rego||'')}" style="width:100%">
+        <label>Bales</label><input id="eh-bales" type="number" value="${x.bales}" style="width:100%">
+        <label>Weigh-in gross kg</label><input id="eh-in" type="number" value="${x.weighIn ?? ''}" style="width:100%">
+      </div>
+      <div>
+        <label>Actual weigh-out gross kg</label><input id="eh-out" type="number" value="${x.actualOut ?? ''}" style="width:100%">
+        <label>Empty container tare (${esc(x.inId||'none')}) kg</label><input id="eh-intare" type="number" value="${x.inTare||0}" style="width:100%">
+        <label>Full container tare (${esc(x.outId)}) kg</label><input id="eh-outtare" type="number" value="${x.outTare}" style="width:100%">
+      </div>
+    </div>`,
+    `<button class="danger" onclick="delHist('${id}')" style="margin-right:auto">Delete load</button>
+     <button onclick="closeDlg()">Cancel</button><button class="primary" onclick="saveHist('${id}')">Save</button>`);
+}
+function saveHist(id){
+  const x = S.history.find(h => h.id===id);
+  x.rego = normRego($('#eh-rego').value);
+  x.bales = Math.max(0, Math.round(num($('#eh-bales').value) ?? x.bales));
+  x.estNet = x.bales * x.baleKg;
+  x.weighIn = num($('#eh-in').value);
+  x.actualOut = num($('#eh-out').value);
+  x.inTare = num($('#eh-intare').value) ?? 0;
+  x.outTare = num($('#eh-outtare').value) ?? x.outTare;
+  save(); closeDlg(); render(); toast('Load updated');
+}
+function delHist(id){ if (!confirm('Delete this load from history?')) return; S.history = S.history.filter(h => h.id!==id); save(); closeDlg(); render(); }
+function exportCSV(){
+  const head = ['Date','Bay','Container out','Out tare','Material','Bales','Avg kg/bale used','Est load kg','Truck rego','Container in','In tare','Weigh-in','Truck tare','Predicted out','Actual out','Actual load','Actual kg/bale','Diff kg'];
+  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, x.outTare, x.material, x.bales, x.baleKg, x.estNet, x.rego, x.inId||'', x.inTare, x.weighIn??'', c.truckTare??'', c.predicted??'', x.actualOut??'', c.actualNet??'', c.perBale!=null?Math.round(c.perBale):'', c.diff??'']; });
+  const csv = [head, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  download(`container-loads-${new Date().toISOString().slice(0,10)}.csv`, csv, 'text/csv');
+}
+
+/* =========================================================
+   BACKUP
+   ========================================================= */
+function renderBackup(){
+  $('#main').innerHTML = `
+    <div class="panel">
+      <h2>Backup &amp; move data</h2>
+      <p>Everything is saved in <b>this browser on this device</b>. Download a backup regularly, and use it to move the data to another PC or tablet.</p>
+      <div class="row">
+        <button class="primary" onclick="download('containertracks-backup-${new Date().toISOString().slice(0,10)}.json', JSON.stringify(S,null,2), 'application/json')">Download backup</button>
+        <label class="btn" style="margin:0;color:var(--ink);font-size:15px">Restore from backup…<input type="file" accept=".json,application/json" onchange="restore(this.files[0])" class="hidden"></label>
+        <button class="danger" onclick="resetAll()">Reset everything</button>
+      </div>
+      <p class="muted" style="margin-top:14px">${S.containers.length} containers · ${S.history.length} loads · ${Object.keys(S.trucks).length} trucks on record</p>
+    </div>`;
+}
+function download(name, text, type){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+function restore(file){
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!d.bays || !d.materials) throw 0;
+      if (!confirm('Replace all current data with this backup?')) return;
+      localStorage.setItem(KEY, JSON.stringify(d)); load(); render(); toast('Backup restored');
+    } catch(e){ toast('That file is not a ContainerTracks backup'); }
+  };
+  r.readAsText(file);
+}
+function resetAll(){
+  if (!confirm('Delete ALL containers, bays, trucks and history? Download a backup first if unsure.')) return;
+  S = defaults(); save(); render(); toast('Reset done');
+}
+
+/* ---------- dialog ---------- */
+function openDlg(title, body, foot){
+  $('#dlg-title').textContent = title; $('#dlg-body').innerHTML = body; $('#dlg-foot').innerHTML = foot;
+  const d = $('#dlg'); if (!d.open) d.showModal();
+}
+function closeDlg(){ $('#dlg').close(); }
+
+load(); render();
+</script>
+</body>
+</html>
