@@ -977,13 +977,14 @@ function renderDaySheet(){
       <h2>Day sheet — ${fmtDay(DAY)}${DAY===today ? ' <span class="muted">(today)</span>' : DAY > today ? ' <span class="muted">(planned)</span>' : ''}</h2>
 
       <div class="addload noprint">
+        <div><label>Date</label><input id="dl-date" type="date" value="${DAY}" oninput="dlDateLabel()" style="width:150px"></div>
         <div><label>Company</label><input id="dl-co" list="dl-companies" placeholder="e.g. Visy" style="width:180px"></div>
         <div><label>Commodity</label><select id="dl-mat">${matOpts('OCC')}</select></div>
         <div><label>Truck</label><select id="dl-cfg">${cfgOpts(S.truckConfigs[0]?.id)}</select></div>
         <div><label>Rego</label><input id="dl-rego" list="dl-regos" placeholder="if here" style="width:110px" oninput="dlRegoFill()"></div>
         <div><label>Tare (t)</label><input id="dl-tare" type="number" step="any" placeholder="if here" style="width:90px"></div>
         <div><label>Notes</label><input id="dl-notes" style="width:160px"></div>
-        <div><label>&nbsp;</label><button class="primary" onclick="addLoad()">Add to ${DAY===today?'today':fmtDay(DAY).replace(/ \\d{4}$/,'')}</button></div>
+        <div><label>&nbsp;</label><button class="primary" id="dl-add" onclick="addLoad()">${addLabel(DAY)}</button></div>
       </div>
 
       <div class="tbl-wrap"><table class="day">
@@ -1049,6 +1050,8 @@ function renderDaySheet(){
     </div>`;
 }
 
+const addLabel = d => d === ymd() ? 'Add to today' : 'Add to ' + fmtDay(d).replace(/ \d{4}$/, '');
+function dlDateLabel(){ $('#dl-add').textContent = addLabel($('#dl-date').value || DAY); }
 function dlRegoFill(){
   const r = normRego($('#dl-rego').value), t = S.trucks[r];
   if (t){ if (!$('#dl-tare').value) $('#dl-tare').value = tv(t.tare); if (t.config && cfgOf(t.config)) $('#dl-cfg').value = t.config; }
@@ -1057,11 +1060,12 @@ function addLoad(){
   const company = $('#dl-co').value.trim();
   if (!company) return toast('Enter the company');
   const rego = normRego($('#dl-rego').value), tare = toKg($('#dl-tare').value);
-  const l = { id: uid(), date: DAY, company, material: $('#dl-mat').value, config: $('#dl-cfg').value,
+  const date = $('#dl-date').value || DAY;
+  const l = { id: uid(), date, company, material: $('#dl-mat').value, config: $('#dl-cfg').value,
               rego, tare, bales: null, weighOut: null, notes: $('#dl-notes').value.trim(), order: Date.now() };
   S.loads.push(l); rememberCompany(company); rememberTruck(l);
-  save(); render(); toast(`${company} added to ${fmtDay(DAY)}`);
-  setTimeout(() => $('#dl-co')?.focus(), 0);
+  save(); render(); toast(`${company} added to ${fmtDay(date)}${date !== DAY ? ' (see Upcoming loads)' : ''}`);
+  setTimeout(() => { if ($('#dl-date')) { $('#dl-date').value = date; dlDateLabel(); } $('#dl-co')?.focus(); }, 0);
 }
 function rememberTruck(l){ if (l.rego && l.tare != null) S.trucks[l.rego] = { tare: l.tare, updated: new Date().toISOString(), config: l.config }; }
 function setLoad(id, f, v){
