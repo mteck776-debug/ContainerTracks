@@ -267,6 +267,10 @@ function migrate(st){
   });
   st.settings = Object.assign({}, BOOKING_DEFAULTS, st.settings || {});
   st.loads = st.loads || []; st.companies = st.companies || []; st.forms = st.forms || {};
+  if ('genuine' in st.forms){                 // earlier version kept one Genuine form
+    const g = st.forms.genuine; delete st.forms.genuine;
+    if (g && !st.forms[locKey(GRG)]) st.forms[locKey(GRG)] = Object.assign({ fields:['Text 1','Text 2'], map:{ 'Text 1':'container', 'Text 2':'tare' } }, g);
+  }
   if (!st.truckConfigs || !st.truckConfigs.length) st.truckConfigs = [
     { id:'b9', name:'9 axle B-double', maxGross:62500, maxBales:0 },
     { id:'b8', name:'8 axle B-double', maxGross:59000, maxBales:0 },
@@ -510,11 +514,17 @@ function fmtContNo(id){
 const bookName = m => (m.bookName || m.name || m.code).trim();
 const todayAU = () => new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
 
-/* ---------- Genuine Recycling container weight declaration (PDF) ----------
-   The signed form is uploaded once (Materials tab) and kept in the shared database,
-   not in the public repo. Container number + tare are written onto its lines. */
+/* ---------- weight declaration forms (PDF), one per delivery location ----------
+   Each uploaded PDF's fill-in boxes are mapped to values (container number, tare, …).
+   Forms live in the shared database, not in the public repo. */
 const PDFLIB_URL = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
-const isGenuine = m => /genuine/i.test(m.deliveryTo || '');
+const locKey = s => String(s || '').trim().toUpperCase();
+const deliveryLocations = () => [...new Set(S.materials.map(m => locKey(m.deliveryTo)).filter(Boolean))].sort();
+const formFor = m => S.forms[locKey(m.deliveryTo)] || null;
+const FIELD_ROLES = [
+  ['', '— leave blank —'], ['container', 'Container number'], ['tare', 'Container tare'], ['date', "Today's date"],
+  ['bales', 'Bale count'], ['desc', 'Description (48 x MRF … Bales)'], ['order', 'Connote / order number'], ['commodity', 'Commodity name'],
+];
 function loadPdfLib(){
   if (window.PDFLib) return Promise.resolve(window.PDFLib);
   return new Promise((ok, fail) => {
@@ -524,38 +534,84 @@ function loadPdfLib(){
   });
 }
 const b64ToBytes = b => Uint8Array.from(atob(b), c => c.charCodeAt(0));
+function guessRole(name, i){
+  const n = name.toLowerCase();
+  if (/contain|cont\.? ?no/.test(n)) return 'container';
+  if (/tare/.test(n)) return 'tare';
+  if (/date/.test(n)) return 'date';
+  return ['container', 'tare'][i] || '';       // otherwise: 1st box = container, 2nd = tare (top to bottom)
+}
 async function weightDeclaration(n){
-  const b = bay(n), c = cont(b.containerId), form = S.forms?.genuine;
-  if (!form) return toast('Upload the Genuine weight declaration PDF on the Materials tab first');
+  const b = bay(n), c = cont(b.containerId), m = mat(b.material), form = formFor(m);
+  if (!form) return toast(`No weight declaration form for ${m.deliveryTo} — upload one on the Materials tab`);
+  const bales = b.booking?.bales ?? (document.getElementById('bk-bales') ? bkBales(b) : b.bales);
+  const order = b.booking?.orderNo || (document.getElementById('bk-no') ? bkNo() : '');
   const tare = tareOf(c);
+  const value = role => ({ container: fmtContNo(c.id), tare: tare != null ? `${(tare/1000).toFixed(2)} t` : '', date: todayAU(),
+    bales: String(bales), desc: `${bales} x MRF ${bookName(m)} Bales`, order, commodity: bookName(m) })[role] || '';
   const win = window.open('', '_blank');           // open now so pop-up blockers allow it
   try {
     const { PDFDocument, StandardFonts, rgb, PDFName } = await loadPdfLib();
     const pdf = await PDFDocument.load(b64ToBytes(form.b64));
-    /* drop the blue fill-in boxes: detach the form fields and their widgets */
+    const font = await pdf.embedFont(StandardFonts.Helvetica), pages = pdf.getPages();
+    /* write each mapped value where its box is, then drop the boxes so it prints clean */
+    let fields = []; try { fields = pdf.getForm().getFields(); } catch(e) {}
+    fields.forEach(f => {
+      const text = value(form.map?.[f.getName()]); if (!text) return;
+      f.acroField.getWidgets().forEach(w => {
+        const r = w.getRectangle(), pref = w.P(), page = pages.find(pg => pg.ref === pref) || pages[0];
+        let size = Math.min(16, r.height * 0.72);
+        while (size > 7 && font.widthOfTextAtSize(text, size) > r.width - 4) size -= 0.5;
+        page.drawText(text, { x: r.x + 3, y: r.y + Math.max(2, r.height * 0.2), size, font, color: rgb(0,0,0) });
+      });
+    });
     try { pdf.getForm().acroForm.dict.set(PDFName.of('Fields'), pdf.context.obj([])); } catch(e) {}
-    pdf.getPages().forEach(pg => pg.node.delete(PDFName.of('Annots')));
-    const page = pdf.getPages()[0], font = await pdf.embedFont(StandardFonts.Helvetica);
-    const P = S.settings.declPos || {};
-    /* same column, size and baseline as the printed details above (Genuine Recycling Group etc.) */
-    page.drawText(fmtContNo(c.id), { x: P.contX ?? 229.7, y: P.contY ?? 398.6, size: 16, font, color: rgb(0,0,0) });
-    if (tare != null) page.drawText(`${(tare/1000).toFixed(2)} t`, { x: P.tareX ?? 229.7, y: P.tareY ?? 342.9, size: 16, font, color: rgb(0,0,0) });
+    pages.forEach(pg => pg.node.delete(PDFName.of('Annots')));
     const url = URL.createObjectURL(new Blob([await pdf.save()], { type: 'application/pdf' }));
     if (win) win.location.href = url; else window.open(url, '_blank');
   } catch(e){ if (win) win.close(); toast(e.message || 'Could not make the PDF'); console.error(e); }
 }
-function uploadForm(file){
+async function uploadForm(loc, file){
   if (!file) return;
-  if (file.size > 700000) return toast('That PDF is too big (keep it under 700 KB)');
-  const r = new FileReader();
-  r.onload = () => {
-    const b64 = btoa(new Uint8Array(r.result).reduce((s, x) => s + String.fromCharCode(x), ''));
-    S.forms = Object.assign({}, S.forms, { genuine: { b64, name: file.name, at: new Date().toISOString() } });
-    save(); render(); toast('Weight declaration form saved');
-  };
-  r.readAsArrayBuffer(file);
+  if (file.size > 300000) return toast('That PDF is too big (keep it under 300 KB)');
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const { PDFDocument } = await loadPdfLib();
+    const pdf = await PDFDocument.load(bytes), pages = pdf.getPages();
+    let fields = []; try { fields = pdf.getForm().getFields(); } catch(e) {}
+    /* order boxes top-to-bottom, left-to-right so the guesses follow the page */
+    const info = fields.map(f => { const w = f.acroField.getWidgets()[0], r = w ? w.getRectangle() : { x:0, y:0 };
+      const pi = Math.max(0, pages.findIndex(pg => w && pg.ref === w.P())); return { name: f.getName(), pi, x: r.x, y: r.y }; })
+      .sort((a, b) => a.pi - b.pi || b.y - a.y || a.x - b.x);
+    if (!info.length) toast('This PDF has no fill-in boxes — make it editable (add text fields) so the app knows where to write');
+    const old = S.forms[loc]?.map || {};
+    const map = {}; info.forEach((f, i) => map[f.name] = old[f.name] ?? guessRole(f.name, i));
+    const b64 = btoa(bytes.reduce((s, x) => s + String.fromCharCode(x), ''));
+    S.forms = Object.assign({}, S.forms, { [loc]: { b64, name: file.name, at: new Date().toISOString(), fields: info.map(f => f.name), map } });
+    save(); render(); toast(`Form saved for ${loc}`);
+  } catch(e){ toast('Could not read that PDF: ' + (e.message || e)); console.error(e); }
 }
-function removeForm(){ if (!confirm('Remove the uploaded weight declaration form?')) return; S.forms = Object.assign({}, S.forms, { genuine: null }); save(); render(); }
+function setFormRole(loc, field, role){ S.forms[loc].map = Object.assign({}, S.forms[loc].map, { [field]: role }); save(); toast('Saved'); }
+function removeForm(loc){ if (!confirm(`Remove the weight declaration form for ${loc}?`)) return; const f = Object.assign({}, S.forms); delete f[loc]; S.forms = f; save(); render(); }
+function formsPanel(){
+  const locs = deliveryLocations();
+  return `<h3 style="margin-top:22px">Weight declaration forms</h3>
+    <p class="muted">Upload a fillable PDF for each delivery location. Bookings going there get a <b>Weight declaration PDF</b> button that fills in the boxes below, ready to print. Forms are stored in the app's database, not on GitHub.</p>
+    <div class="tbl-wrap"><table>
+      <tr><th>Delivery location</th><th>Form</th><th>What goes in each box</th><th></th></tr>
+      ${locs.map(loc => { const f = S.forms[loc], key = JSON.stringify(loc).replace(/"/g, '&quot;'); return `<tr>
+        <td><b>${esc(loc)}</b><div class="muted">${S.materials.filter(m => locKey(m.deliveryTo) === loc).map(m => esc(m.code)).join(', ')}</div></td>
+        <td>${f ? `<span class="pill done">✓ ${esc(f.name)}</span><div class="muted">${fmtDate(f.at)}</div>` : '<span class="pill">Not uploaded</span>'}</td>
+        <td style="white-space:normal">${f ? (f.fields?.length ? f.fields.map(fn => `<div style="display:flex;gap:6px;align-items:center;margin:2px 0">
+            <span class="muted" style="min-width:90px">${esc(fn)}</span>
+            <select onchange="setFormRole(${key}, ${JSON.stringify(fn).replace(/"/g, '&quot;')}, this.value)">${FIELD_ROLES.map(([v, l]) => `<option value="${v}" ${(f.map?.[fn] || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('')
+            : '<span class="neg">No fill-in boxes found in this PDF</span>') : ''}</td>
+        <td style="white-space:nowrap">
+          <label class="btn" style="margin:0;color:var(--ink);font-size:14px;display:inline-block">${f ? 'Replace…' : 'Upload PDF…'}<input type="file" accept="application/pdf,.pdf" class="hidden" onchange="uploadForm(${key}, this.files[0])"></label>
+          ${f ? `<button class="small danger" onclick="removeForm(${key})">Remove</button>` : ''}</td>
+      </tr>`; }).join('')}
+    </table></div>`;
+}
 
 /* the fields, in the order they appear on the Linfox "New Booking" form */
 function sheetRows(b, orderNo, bales){
@@ -612,7 +668,7 @@ function openBook(n){
       ${sheetHTML(b, b.booking.orderNo, bl)}
       <p class="muted">The booking clears when the truck swap is done.</p>`,
       `<button class="danger" onclick="cancelBook(${n})" style="margin-right:auto">Remove booking</button>
-       ${isGenuine(m) ? `<button onclick="weightDeclaration(${n})">Weight declaration PDF</button>` : ''}
+       ${formFor(m) ? `<button onclick="weightDeclaration(${n})">Weight declaration PDF</button>` : ''}
        <button onclick="copyText(SHEET)">Copy all</button>
        <button onclick="openLinfox()">Open Linfox portal</button>
        <button class="primary" onclick="closeDlg()">Close</button>`);
@@ -640,7 +696,7 @@ function bookNow(n){
     <div id="bk-sheet">${sheetHTML(b, no, b.bales)}</div>
     <p>After you've submitted the booking in the portal, click <b>Mark as booked</b>.</p>`,
     `<button onclick="closeDlg()" style="margin-right:auto">Cancel</button>
-     ${isGenuine(m) ? `<button onclick="weightDeclaration(${n})">Weight declaration PDF</button>` : ''}
+     ${formFor(m) ? `<button onclick="weightDeclaration(${n})">Weight declaration PDF</button>` : ''}
      <button onclick="copyText(sheetText(bay(${n}), bkNo(), bkBales(bay(${n}))))">Copy all</button>
      <button onclick="openLinfox()">Open portal again</button>
      <button class="primary" onclick="markBooked(${n})">Mark as booked</button>`);
@@ -1343,13 +1399,7 @@ function renderMaterials(){
           <td><input value="${esc(m.deliveryInstr||'')}" placeholder="none" onchange="setMatField(${i},'deliveryInstr',this.value)" style="width:300px"></td>
         </tr>`).join('')}
       </table></div>
-      <h3 style="margin-top:22px">Genuine Recycling weight declaration</h3>
-      <p class="muted">Upload the signed Container Weight Declaration PDF once. Bookings going to Genuine Recycling then get a <b>Weight declaration PDF</b> button that fills in the container number and tare, ready to print. The form is stored in the app's database, not on GitHub.</p>
-      <div class="row" style="align-items:center">
-        ${S.forms?.genuine ? `<span class="pill done">✓ ${esc(S.forms.genuine.name)}</span><span class="muted">uploaded ${fmtDate(S.forms.genuine.at)}</span>
-           <button class="small danger" onclick="removeForm()">Remove</button>` : '<span class="pill">Not uploaded</span>'}
-        <label class="btn" style="margin:0;color:var(--ink);font-size:14px">${S.forms?.genuine ? 'Replace PDF…' : 'Upload PDF…'}<input type="file" accept="application/pdf,.pdf" class="hidden" onchange="uploadForm(this.files[0])"></label>
-      </div>
+      ${formsPanel()}
       <h3 style="margin-top:22px">Booking details (same on every booking)</h3>
       <div class="tbl-wrap"><table>
         ${[['serviceType','Service type'],['depot','Depot'],['pickupLocation','Pickup location'],['email','Pickup contact email'],['phone','Pickup contact number'],
@@ -1548,7 +1598,7 @@ function toDocs(st){
   out.settings.set('booking', st.settings);
   out.settings.set('companies', { names: st.companies });
   out.settings.set('truckConfigs', { list: st.truckConfigs });
-  out.settings.set('forms', { genuine: st.forms?.genuine || null });
+  out.settings.set('forms', { byLocation: st.forms || {} });
   (st.loads||[]).forEach(l => out.loads.set(l.id, l));
   return out;
 }
@@ -1568,7 +1618,9 @@ function fromRemote(){
   s.companies = sdoc('companies')?.names || [];
   const cfgs = sdoc('truckConfigs')?.list; if (cfgs && cfgs.length) s.truckConfigs = cfgs;
   s.loads = vals('loads');
-  s.forms = { genuine: sdoc('forms')?.genuine || null };
+  const fd = sdoc('forms') || {};
+  s.forms = Object.assign({}, fd.byLocation || {}, fd.genuine ? { genuine: fd.genuine } : {});
+  migrate(s);
   return s;
 }
 
