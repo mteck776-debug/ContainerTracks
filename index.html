@@ -101,6 +101,16 @@
   .note{background:#fff7e6;border:1px solid #f2d39b;color:#7a5410;border-radius:8px;padding:8px 10px;font-size:13px;margin-top:8px}
   .hidden{display:none !important}
 
+  /* cloud sync */
+  #sync{display:flex;align-items:center;gap:6px;font-size:13px;color:#c9d2dc}
+  #sync i{width:9px;height:9px;border-radius:50%;background:#7d8b99;display:inline-block}
+  #sync.ok i{background:#3ccf7a} #sync.busy i{background:#f0b429} #sync.off i{background:#f0b429} #sync.err i{background:#ff5c5c}
+  #who{font-size:13px;color:#c9d2dc;display:flex;align-items:center;gap:8px}
+  #who button{background:transparent;color:#c9d2dc;border-color:#3a4756;padding:4px 9px;font-size:13px}
+  #login{position:fixed;inset:0;background:#1c2530;display:flex;align-items:center;justify-content:center;z-index:40;padding:16px}
+  #login .card{background:#fff;border-radius:14px;padding:24px;width:min(380px,100%);box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  #login input{width:100%}
+  #login .err{color:var(--bad);font-size:13px;min-height:18px;margin-top:8px}
   #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1c2530;color:#fff;padding:10px 16px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
   #toast.show{opacity:1}
   @media print{header,.actions,nav{display:none}}
@@ -118,6 +128,8 @@
       <button data-v="backup">Backup</button>
     </nav>
     <div class="spacer"></div>
+    <div id="sync" class="hidden" title="Sync status"><i></i><span></span></div>
+    <div id="who" class="hidden"><span></span><button onclick="cloudSignOut()">Sign out</button></div>
     <button class="primary" onclick="openSwap()">Truck swap</button>
   </div>
 </header>
@@ -130,10 +142,29 @@
 </dialog>
 <div id="toast"></div>
 
+<div id="login" class="hidden">
+  <form class="card" onsubmit="cloudSignIn(event)">
+    <div class="brand" style="color:var(--ink);margin-bottom:6px"><i></i>ContainerTracks</div>
+    <p class="muted" style="margin:0 0 10px">Sign in to see and update the yard.</p>
+    <label>Email</label><input id="li-email" type="email" autocomplete="username" required>
+    <label>Password</label><input id="li-pass" type="password" autocomplete="current-password" required>
+    <div class="err" id="li-err"></div>
+    <div class="row" style="justify-content:space-between;align-items:center;margin-top:6px">
+      <a href="#" onclick="cloudReset();return false" class="muted">Forgot password?</a>
+      <button class="primary" type="submit" id="li-btn">Sign in</button>
+    </div>
+  </form>
+</div>
+
+<!-- Firebase settings live in firebase-config.js. If it's missing or null the app runs on this device only. -->
+<script src="firebase-config.js"></script>
+
 <script>
 /* =========================================================
    ContainerTracks — yard container & bale tracker
-   All data stays in this browser (localStorage). Use Backup to move it.
+   With firebase-config.js filled in, data is shared live through Firestore
+   (one doc per bay / container / prefix / material / truck / load).
+   Without it, data stays in this browser (localStorage).
    ========================================================= */
 const KEY = 'containertracks:v1';
 const BAY_COUNT = 6;
@@ -179,6 +210,7 @@ function load(){
   for (let i = S.bays.length; i < BAY_COUNT; i++) S.bays.push(newBay(i+1));
 }
 function save(){
+  if (CLOUD && CLOUD.loaded) return cloudPush();
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
   catch(e){ toast('Could not save — browser storage is blocked'); }
 }
@@ -361,6 +393,15 @@ function adj(n, d){
   const b = bay(n);
   const nb = Math.max(0, (b.bales||0) + d);
   if (nb === b.bales) return;
+  if (CLOUD && CLOUD.loaded){
+    /* increment, so taps from two devices at once both count */
+    const F = CLOUD.F, upd = { bales: F.increment(nb - b.bales) };
+    if (!b.startedAt && nb > 0) upd.startedAt = b.startedAt = new Date().toISOString();
+    b.bales = nb;
+    CLOUD.remote.bays.set(String(b.n), stable(clean(b)));
+    F.updateDoc(F.doc(CLOUD.db, 'bays', String(b.n)), upd).catch(cloudErr);
+    render(); return;
+  }
   if (!b.startedAt && nb > 0) b.startedAt = new Date().toISOString();
   b.log.push({ t:new Date().toISOString(), d:nb - b.bales });
   b.bales = nb; save(); render();
@@ -789,7 +830,8 @@ function renderBackup(){
   $('#main').innerHTML = `
     <div class="panel">
       <h2>Backup &amp; move data</h2>
-      <p>Everything is saved in <b>this browser on this device</b>. Download a backup regularly, and use it to move the data to another PC or tablet.</p>
+      ${CLOUD ? `<p>Data is shared live through Firebase between everyone signed in. A downloaded backup is still a good idea now and then. <b>Restore</b> and <b>Reset</b> change the data for <b>everyone</b>.</p>`
+              : `<p>Everything is saved in <b>this browser on this device</b>. Download a backup regularly, and use it to move the data to another PC or tablet.</p>`}
       <div class="row">
         <button class="primary" onclick="download('containertracks-backup-${new Date().toISOString().slice(0,10)}.json', JSON.stringify(S,null,2), 'application/json')">Download backup</button>
         <label class="btn" style="margin:0;color:var(--ink);font-size:15px">Restore from backup…<input type="file" accept=".json,application/json" onchange="restore(this.files[0])" class="hidden"></label>
@@ -812,7 +854,8 @@ function restore(file){
       const d = JSON.parse(r.result);
       if (!d.bays || !d.materials) throw 0;
       if (!confirm('Replace all current data with this backup?')) return;
-      localStorage.setItem(KEY, JSON.stringify(d)); load(); render(); toast('Backup restored');
+      S = Object.assign(defaults(), d); for (let i = S.bays.length; i < BAY_COUNT; i++) S.bays.push(newBay(i+1));
+      save(); render(); toast('Backup restored');
     } catch(e){ toast('That file is not a ContainerTracks backup'); }
   };
   r.readAsText(file);
@@ -829,7 +872,172 @@ function openDlg(title, body, foot){
 }
 function closeDlg(){ $('#dlg').close(); }
 
-load(); render();
+/* =========================================================
+   FIREBASE SYNC
+   ========================================================= */
+const COLS = ['bays','containers','prefixes','materials','trucks','history'];
+let CLOUD = null;          // set once firebase-config.js + SDK are loaded
+let pendingRender = false;
+
+const enc = s => encodeURIComponent(String(s)).replace(/\./g, '%2E');
+const clean = o => JSON.parse(JSON.stringify(o));               // drops undefined (Firestore rejects it)
+const stable = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x)
+  ? Object.keys(x).sort().reduce((o, key) => (o[key] = x[key], o), {}) : x);
+
+function toDocs(st){
+  const out = {}; COLS.forEach(c => out[c] = new Map());
+  st.bays.forEach(b => out.bays.set(String(b.n), { ...b, log: [] }));
+  st.containers.forEach(c => out.containers.set(enc(c.id), c));
+  st.prefixes.forEach(p => out.prefixes.set(enc(p.prefix), p));
+  st.materials.forEach((m, i) => out.materials.set(enc(m.code), { ...m, _i: i }));
+  Object.entries(st.trucks).forEach(([r, t]) => out.trucks.set(enc(r), { rego: r, ...t }));
+  st.history.forEach(h => out.history.set(h.id, h));
+  return out;
+}
+function fromRemote(){
+  const vals = c => [...CLOUD.remote[c].values()].map(j => JSON.parse(j));
+  const s = defaults(), bays = vals('bays');
+  s.bays = s.bays.map(b => Object.assign(newBay(b.n), bays.find(x => x.n === b.n) || {}));
+  s.containers = vals('containers');
+  s.prefixes = vals('prefixes');
+  const mats = vals('materials').sort((a, b) => (a._i ?? 0) - (b._i ?? 0)).map(({ _i, ...m }) => m);
+  if (mats.length) s.materials = mats;
+  s.trucks = {}; vals('trucks').forEach(({ rego, ...t }) => s.trucks[rego] = t);
+  s.history = vals('history').sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  return s;
+}
+
+/* write only the docs that changed since the last snapshot */
+function cloudPush(){
+  const L = toDocs(S), R = CLOUD.remote, F = CLOUD.F, ops = [];
+  COLS.forEach(c => {
+    L[c].forEach((obj, id) => { const j = stable(clean(obj)); if (R[c].get(id) !== j) ops.push(['set', c, id, j]); });
+    R[c].forEach((_, id) => { if (!L[c].has(id)) ops.push(['del', c, id]); });
+  });
+  for (let i = 0; i < ops.length; i += 400){
+    const batch = F.writeBatch(CLOUD.db);
+    ops.slice(i, i + 400).forEach(([t, c, id, j]) => {
+      const ref = F.doc(CLOUD.db, c, id);
+      t === 'set' ? batch.set(ref, JSON.parse(j)) : batch.delete(ref);
+    });
+    batch.commit().catch(cloudErr);     // not awaited: offline writes queue and sync later
+  }
+  ops.forEach(([t, c, id, j]) => t === 'set' ? R[c].set(id, j) : R[c].delete(id));
+  syncStatus();
+}
+function cloudErr(e){
+  console.error(e);
+  const msg = e && e.code === 'permission-denied' ? 'No permission — is your email on the allowed list?' : 'Save failed — ' + (e && e.message || e);
+  setSync('err', 'Error'); toast(msg);
+}
+
+/* don't yank an input out from under someone who is typing */
+function scheduleRender(){
+  const a = document.activeElement;
+  if (a && $('#main').contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)){ pendingRender = true; return; }
+  pendingRender = false; render();
+}
+document.addEventListener('focusout', () => setTimeout(() => { if (pendingRender) scheduleRender(); }, 0));
+
+function setSync(cls, text){ const el = $('#sync'); el.className = cls; el.querySelector('span').textContent = text; }
+function syncStatus(){
+  if (!CLOUD || !CLOUD.loaded) return;
+  if (!navigator.onLine) return setSync('off', 'Offline — will sync');
+  const pending = COLS.some(c => CLOUD.meta[c]?.pending);
+  const cached  = COLS.every(c => CLOUD.meta[c]?.cache);
+  if (pending) return setSync('busy', 'Saving…');
+  if (cached)  return setSync('off', 'Connecting…');
+  setSync('ok', 'Synced');
+}
+addEventListener('online', syncStatus); addEventListener('offline', syncStatus);
+
+function startListeners(){
+  const { F, db } = CLOUD;
+  CLOUD.remote = {}; CLOUD.meta = {}; CLOUD.loaded = false;
+  const ready = new Set();
+  $('#main').innerHTML = '<div class="panel">Loading yard…</div>';
+  setSync('busy', 'Loading…');
+  CLOUD.unsubs = COLS.map(c => F.onSnapshot(F.collection(db, c), { includeMetadataChanges: true }, snap => {
+    const m = new Map(); snap.forEach(d => m.set(d.id, stable(d.data())));
+    CLOUD.remote[c] = m;
+    CLOUD.meta[c] = { pending: snap.metadata.hasPendingWrites, cache: snap.metadata.fromCache };
+    ready.add(c);
+    if (ready.size < COLS.length) return;
+    if (!CLOUD.loaded) firstLoad(); else { S = fromRemote(); scheduleRender(); }
+    syncStatus();
+  }, err => {
+    cloudErr(err);
+    if (err.code === 'permission-denied') $('#main').innerHTML = `<div class="panel"><h2>No access</h2><p>You're signed in as <b>${esc(CLOUD.auth.currentUser?.email)}</b>, but that email isn't on the allowed list in the Firestore rules.</p></div>`;
+  }));
+}
+function firstLoad(){
+  CLOUD.loaded = true;
+  const empty = COLS.every(c => CLOUD.remote[c].size === 0);
+  if (!empty){ S = fromRemote(); render(); return; }
+  /* brand-new project: seed it, offering to bring this device's data up */
+  let local = null; try { local = JSON.parse(localStorage.getItem(KEY)); } catch(e) {}
+  const hasLocal = local && ((local.containers||[]).length || (local.history||[]).length || (local.prefixes||[]).length);
+  S = defaults();
+  if (hasLocal && confirm('The shared database is empty. Upload the data already on this device to it?')){
+    S = Object.assign(defaults(), local);
+    for (let i = S.bays.length; i < BAY_COUNT; i++) S.bays.push(newBay(i+1));
+  }
+  cloudPush(); render(); toast('Shared database set up');
+}
+
+/* called by the module script once the Firebase SDK has loaded */
+window.cloudStart = ctx => {
+  CLOUD = Object.assign(ctx, { loaded:false, remote:{}, meta:{}, unsubs:[] });
+  $('#sync').classList.remove('hidden');
+  ctx.A.onAuthStateChanged(ctx.auth, user => {
+    CLOUD.unsubs.forEach(u => u()); CLOUD.unsubs = []; CLOUD.loaded = false;
+    if (!user){
+      $('#login').classList.remove('hidden'); $('#who').classList.add('hidden'); setSync('', 'Signed out');
+      setTimeout(() => $('#li-email').focus(), 50); return;
+    }
+    $('#login').classList.add('hidden');
+    $('#who').classList.remove('hidden'); $('#who span').textContent = user.email;
+    startListeners();
+  });
+};
+window.cloudFail = e => {
+  console.error(e);
+  $('#main').innerHTML = `<div class="panel"><h2>Can't reach Firebase</h2><p>Check the internet connection and reload. (${esc(e && e.message || e)})</p><button class="primary" onclick="location.reload()">Retry</button></div>`;
+};
+async function cloudSignIn(ev){
+  ev.preventDefault();
+  const btn = $('#li-btn'); btn.disabled = true; $('#li-err').textContent = '';
+  try { await CLOUD.A.signInWithEmailAndPassword(CLOUD.auth, $('#li-email').value.trim(), $('#li-pass').value); $('#li-pass').value = ''; }
+  catch(e){ $('#li-err').textContent = /invalid|wrong|not-found|credential/.test(e.code||'') ? 'Wrong email or password.' : (e.message || 'Sign-in failed'); }
+  btn.disabled = false;
+}
+async function cloudReset(){
+  const email = $('#li-email').value.trim();
+  if (!email) return $('#li-err').textContent = 'Type your email first, then click Forgot password.';
+  try { await CLOUD.A.sendPasswordResetEmail(CLOUD.auth, email); $('#li-err').textContent = 'Password reset email sent.'; }
+  catch(e){ $('#li-err').textContent = e.message; }
+}
+function cloudSignOut(){ if (confirm('Sign out?')) CLOUD.A.signOut(CLOUD.auth); }
+
+/* ---------- start ---------- */
+if (window.FIREBASE_CONFIG){ S = defaults(); $('#main').innerHTML = '<div class="panel">Connecting…</div>'; }
+else { load(); render(); }
+</script>
+
+<script type="module">
+  /* Firebase SDK — only loaded when firebase-config.js has a config */
+  if (window.FIREBASE_CONFIG){
+    const V = '10.12.2', base = `https://www.gstatic.com/firebasejs/${V}/`;
+    try {
+      const [{ initializeApp }, A, F] = await Promise.all([
+        import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js')]);
+      const app = initializeApp(window.FIREBASE_CONFIG);
+      let db;
+      try { db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); }
+      catch(e){ db = F.getFirestore(app); }   // e.g. private browsing: no offline cache
+      window.cloudStart({ app, auth: A.getAuth(app), A, db, F });
+    } catch(e){ window.cloudFail(e); }
+  }
 </script>
 </body>
 </html>

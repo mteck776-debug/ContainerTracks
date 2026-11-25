@@ -49,8 +49,21 @@ If you enter a truck rego the app remembers that truck's tare. When the same tru
 
 Once a load has an actual weigh-out, the app works out the real average tonnes per bale for that material. The **Materials** tab shows it under *Learned*, and **Use** makes it the new average.
 
-## Data
+## Data & sign-in (Firebase)
 
-All data is saved in the browser it's used in (localStorage), so each PC or tablet keeps its own copy. Use **Backup** to move data between devices or keep a safe copy.
+The data is shared live between every device through the **Containers** Firebase project (`containers-73d69`). Everyone signs in with an email and password, and a change made on one device shows up on the others straight away. If the signal drops, the app keeps working and syncs when it's back online.
+
+**One-time setup in the Firebase console**
+1. **Firestore Database** → Create database → production mode, location `australia-southeast1` (Sydney).
+2. **Firestore Database → Rules** → paste in [`firestore.rules`](firestore.rules), put the allowed email addresses in the list, then click **Publish**.
+3. **Authentication → Sign-in method** → enable **Email/Password**.
+4. **Authentication → Users** → **Add user** for each person (email + starting password). They can use *Forgot password?* on the sign-in screen to set their own.
+5. **Authentication → Settings → Authorized domains** → add `mteck776-debug.github.io`.
+
+To add someone later, add them as a user (step 4) **and** add their email to the rules list (step 2).
+
+The connection settings are in `firebase-config.js`. If you set that file to `null`, the app runs on a single device with browser storage only.
+
+On first sign-in, if the shared database is empty, the app offers to upload the data already on that device.
 
 All weights are shown and entered in **tonnes**: tares, weigh-ins and weigh-outs, and bale weights (e.g. 0.450 t). The default bale weights (OCC 0.450, MXP 0.500, ALI 0.300, HDPE C 0.300, Steel 0.450 t) are placeholders. Set them to your own figures in **Materials**.
