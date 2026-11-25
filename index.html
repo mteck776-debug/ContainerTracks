@@ -162,8 +162,8 @@
   <div class="bar-top">
     <div class="brand"><img src="favicon.svg" alt="" width="34" height="34">MRF Life</div>
     <nav id="nav">
-      <button data-v="yard" class="on">Containers</button>
-      <button data-v="daysheet">Day Sheet</button>
+      <button data-v="daysheet" class="on">Day Sheet</button>
+      <button data-v="yard">Containers</button>
       <button data-v="containers">Tares &amp; Trucks</button>
       <button data-v="materials">Materials</button>
       <button data-v="history">History</button>
@@ -404,7 +404,7 @@ function learned(code){
 }
 
 /* ---------- routing ---------- */
-let view = 'yard';
+let view = 'daysheet';
 $('#nav').addEventListener('click', e => {
   const b = e.target.closest('button[data-v]'); if (!b) return;
   view = b.dataset.v;
