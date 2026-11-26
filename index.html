@@ -1769,7 +1769,8 @@ const RPT_DEFAULT = () => ({ preset: 'all', from: '', to: '', src: [], materials
   sort: { key: 'date', dir: -1 }, group: '', cols: RPT_COLS.filter(c => c[4]).map(c => c[0]) });
 const RPT_KEY = 'containertracks:report';
 let RPT = (() => { try { return Object.assign(RPT_DEFAULT(), JSON.parse(localStorage.getItem(RPT_KEY)) || {}); } catch(e){ return RPT_DEFAULT(); } })();
-let RPT_ACTIVE = null;                       // id of the saved report being viewed
+let RPT_ACTIVE = null;
+let RPT_COLS_OPEN = false;                   // keep the Columns list open while ticking boxes                       // id of the saved report being viewed
 function rptSet(patch){ Object.assign(RPT, patch); try { localStorage.setItem(RPT_KEY, JSON.stringify(RPT)); } catch(e) {} render(); }
 
 function reportRows(){
@@ -1891,7 +1892,7 @@ function renderHistory(){
       <div class="frow"><span>Type</span>${srcs.map(v => chip(RPT.src.includes(v), v, `rptSet({src:__tg(RPT.src,'${v}')})`)).join('')}</div>
       <div class="frow"><span>Material</span>${mats.map(v => chip(RPT.materials.includes(v), v, `rptSet({materials:__tg(RPT.materials,${JSON.stringify(v).replace(/"/g,'&quot;')})})`, anyMat(v).color)).join('') || '<span class="muted">—</span>'}</div>
       <div class="frow"><span>Company</span>${cos.map(v => chip(RPT.companies.includes(v), v, `rptSet({companies:__tg(RPT.companies,${JSON.stringify(v).replace(/"/g,'&quot;')})})`)).join('') || '<span class="muted">—</span>'}</div>
-      <details class="cols-pick"><summary>Columns (${cols.length})</summary>
+      <details class="cols-pick" ${RPT_COLS_OPEN ? 'open' : ''} ontoggle="RPT_COLS_OPEN=this.open"><summary>Columns (${cols.length})</summary>
         <div class="row" style="margin-top:6px">${RPT_COLS.map(([k, l]) => `<label class="ck"><input type="checkbox" ${RPT.cols.includes(k)?'checked':''} onchange="rptCol('${k}',this.checked)"> ${l}</label>`).join('')}</div>
       </details>
     </div>
