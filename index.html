@@ -533,6 +533,7 @@ function yardLock(){
   main.querySelectorAll('button, a[onclick]').forEach(el => {
     if (el.closest('.daynav')) return;
     if (/window\.print/.test(el.getAttribute('onclick') || '')) return;
+    if (/^DAY=/.test(el.getAttribute('onclick') || '')) return;          // links that only open another day
     if (view === 'yard' && el.classList.contains('fill')) return;
     el.classList.add('yard-hide');
   });
