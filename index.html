@@ -151,6 +151,18 @@
   .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;background:#e7eaee;color:#4a5563}
   .pill.in{background:#fff3e0;color:#8a4b08} .pill.done{background:#e9f7ef;color:var(--good)}
   .tag{display:inline-flex;gap:6px;align-items:center;background:#eef1f4;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:13px}
+  .hrow, .row > .hrow{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px;align-items:center}
+  .fchip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 11px;font-size:13px;background:#fff}
+  .fchip i{width:9px;height:9px;border-radius:50%;background:var(--mc)}
+  .fchip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .frow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}
+  .frow > span{width:70px;font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+  .cols-pick{margin-top:10px} .cols-pick summary{cursor:pointer;color:var(--muted);font-size:14px}
+  label.ck{display:inline-flex;gap:5px;align-items:center;margin:0;color:var(--ink);font-size:14px}
+  th.sortable{cursor:pointer;user-select:none} th.sortable:hover{color:var(--ink)}
+  table.rpt tr.grp td{background:#eef1f4;font-weight:800;padding-top:10px}
+  table.rpt tr.sub td{border-bottom:2px solid var(--line);color:var(--muted)}
+  table.rpt tr.tot td{border-top:2px solid var(--ink);font-size:15px}
   .setup-nav{position:sticky;top:56px;z-index:4;display:flex;flex-wrap:wrap;gap:6px;background:var(--bg);padding:8px 0 10px;margin-bottom:6px}
   .setup-nav a{background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 12px;color:var(--ink);text-decoration:none;font-size:14px;box-shadow:var(--shadow)}
   .setup-nav a:hover{border-color:var(--accent);color:var(--accent)}
@@ -274,7 +286,7 @@ function migrate(st){
   });
   st.settings = Object.assign({}, BOOKING_DEFAULTS, st.settings || {});
   st.loads = st.loads || []; st.companies = st.companies || []; st.forms = st.forms || {};
-  st.lots = st.lots || [];
+  st.lots = st.lots || []; st.reports = st.reports || [];
   if (!st.deliveryLocations || !st.deliveryLocations.length){   // first run: take them from the materials
     const seen = {};
     st.materials.forEach(m => { const k = locKey(m.deliveryTo); if (k && !seen[k]) seen[k] = { name: m.deliveryTo, instr: m.deliveryInstr || '' }; });
@@ -1728,32 +1740,198 @@ function addMat(){
 function delMat(i){ if (!confirm(`Delete ${S.materials[i].code}? History keeps its records.`)) return; S.materials.splice(i,1); save(); render(); }
 
 /* =========================================================
-   HISTORY
+   HISTORY — reports
+   Rows = container swaps (History) + finished Day Sheet truck loads.
+   Filter, sort (click a header), group with subtotals, pick columns,
+   and save the setup as a named quick view.
    ========================================================= */
+const RPT_COLS = [
+  // key, label, numeric?, total?, default visible?
+  ['date',      'Date',            false, false, true ],
+  ['src',       'Type',            false, false, true ],
+  ['material',  'Material',        false, false, true ],
+  ['company',   'Company',         false, false, true ],
+  ['container', 'Container out',   false, false, true ],
+  ['bay',       'Bay',             false, false, false],
+  ['order',     'Order no.',       false, false, true ],
+  ['rego',      'Rego',            false, false, false],
+  ['inId',      'Container in',    false, false, false],
+  ['bales',     'Bales',           true,  true,  true ],
+  ['target',    'Target',          true,  false, false],
+  ['est',       'Est. load',       true,  true,  false],
+  ['weighIn',   '1st weigh',       true,  false, false],
+  ['weighOut',  '2nd weigh',       true,  false, false],
+  ['net',       'Net (weighed)',   true,  true,  true ],
+  ['perBale',   't / bale',        true,  false, true ],
+  ['diff',      'vs bale est.',    true,  true,  false],
+];
+const RPT_DEFAULT = () => ({ preset: 'all', from: '', to: '', src: [], materials: [], companies: [], weighed: 'all', search: '',
+  sort: { key: 'date', dir: -1 }, group: '', cols: RPT_COLS.filter(c => c[4]).map(c => c[0]) });
+const RPT_KEY = 'containertracks:report';
+let RPT = (() => { try { return Object.assign(RPT_DEFAULT(), JSON.parse(localStorage.getItem(RPT_KEY)) || {}); } catch(e){ return RPT_DEFAULT(); } })();
+let RPT_ACTIVE = null;                       // id of the saved report being viewed
+function rptSet(patch){ Object.assign(RPT, patch); try { localStorage.setItem(RPT_KEY, JSON.stringify(RPT)); } catch(e) {} render(); }
+
+function reportRows(){
+  const rows = S.history.map(x => { const c = hCalc(x); return { id: x.id, kind: 'container', ts: x.date, day: ymd(x.date),
+    src: 'Container', material: x.material, company: x.company || '', container: x.outId, bay: x.bay, order: x.orderNo || '', rego: x.rego || '',
+    inId: x.inId || '', bales: x.bales, target: x.target ?? null, est: x.estNet, weighIn: x.weighIn, weighOut: x.actualOut,
+    net: c.actualNet, perBale: c.perBale, diff: c.actualNet != null ? c.actualNet - x.estNet : null }; });
+  S.loads.filter(l => l.weighOut != null).forEach(l => {     // finished truck loads only
+    const net = l.tare != null ? l.weighOut - l.tare : null, kgb = anyMat(l.material).baleKg || null;
+    const est = l.bales && kgb ? l.bales * kgb : null;
+    const lot = l.lotId ? S.lots.find(x => x.id === l.lotId) : null;
+    rows.push({ id: l.id, kind: 'truck', ts: l.date + 'T12:00:00', day: l.date, src: lot ? 'CRS lot' : 'Truck', material: l.material, company: l.company || '',
+      container: '', bay: '', order: lot ? lot.lotNo : '', rego: l.rego || '', inId: '', bales: l.bales ?? null, target: null, est,
+      weighIn: l.tare, weighOut: l.weighOut, net, perBale: net != null && l.bales ? net / l.bales : null, diff: net != null && est != null ? net - est : null });
+  });
+  return rows;
+}
+function presetRange(p){
+  const t = new Date(), d = x => ymd(x), y = t.getFullYear(), mo = t.getMonth();
+  if (p === 'today') return [d(t), d(t)];
+  if (p === 'week'){ const s = new Date(t); s.setDate(t.getDate() - ((t.getDay() + 6) % 7)); return [d(s), d(t)]; }
+  if (p === '7d'){ const s = new Date(t); s.setDate(t.getDate() - 6); return [d(s), d(t)]; }
+  if (p === 'month') return [d(new Date(y, mo, 1)), d(t)];
+  if (p === 'lastmonth') return [d(new Date(y, mo - 1, 1)), d(new Date(y, mo, 0))];
+  if (p === 'fy'){ const fy = mo >= 6 ? y : y - 1; return [d(new Date(fy, 6, 1)), d(t)]; }
+  if (p === 'lastfy'){ const fy = (mo >= 6 ? y : y - 1) - 1; return [d(new Date(fy, 6, 1)), d(new Date(fy + 1, 5, 30))]; }
+  return [null, null];
+}
+function filteredRows(cfg = RPT){
+  const [pf, pt] = cfg.preset === 'custom' ? [cfg.from || null, cfg.to || null] : presetRange(cfg.preset);
+  const q = (cfg.search || '').trim().toUpperCase();
+  let rows = reportRows().filter(r =>
+    (!pf || r.day >= pf) && (!pt || r.day <= pt) &&
+    (!cfg.src.length || cfg.src.includes(r.src)) &&
+    (!cfg.materials.length || cfg.materials.includes(r.material)) &&
+    (!cfg.companies.length || cfg.companies.includes(r.company || '(none)')) &&
+    (cfg.weighed === 'all' || (cfg.weighed === 'yes' ? r.net != null : r.net == null)) &&
+    (!q || [r.container, r.inId, r.order, r.rego, r.company, r.material].some(v => String(v || '').toUpperCase().includes(q))));
+  const k = cfg.sort.key === 'date' ? 'ts' : cfg.sort.key, dir = cfg.sort.dir;
+  rows.sort((a, b) => { const x = a[k], y = b[k];
+    if (x == null || x === '') return 1; if (y == null || y === '') return -1;
+    return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * dir || String(b.ts).localeCompare(String(a.ts)); });
+  return rows;
+}
+const groupKey = (r, g) => g === 'material' ? r.material : g === 'company' ? (r.company || '(no company)') : g === 'src' ? r.src
+  : g === 'month' ? new Date(r.day + 'T12:00:00').toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })
+  : g === 'week' ? 'Week of ' + fmtDay(presetWeekStart(r.day)) : '';
+function presetWeekStart(day){ const t = new Date(day + 'T12:00:00'); t.setDate(t.getDate() - ((t.getDay() + 6) % 7)); return ymd(t); }
+function cellText(r, k){
+  const v = r[k];
+  if (k === 'date') return fmtDate(r.ts).replace(/, 12:00 pm$/, '');
+  if (['est','weighIn','weighOut','net','diff'].includes(k)) return v == null ? '—' : k === 'diff' ? signed(v) : kg(v);
+  if (k === 'perBale') return v == null ? '—' : bt(v);
+  return v == null || v === '' ? '—' : String(v);
+}
+function totals(rows){
+  const sum = k => rows.reduce((s, r) => s + (r[k] || 0), 0);
+  const weighed = rows.filter(r => r.net != null && r.bales);
+  const wb = weighed.reduce((s, r) => s + r.bales, 0), wn = weighed.reduce((s, r) => s + r.net, 0);
+  return { n: rows.length, bales: sum('bales'), est: sum('est'), net: sum('net'), diff: sum('diff'), perBale: wb ? wn / wb : null };
+}
+
 function renderHistory(){
-  const h = S.history;
+  const all = reportRows(), rows = filteredRows(), cols = RPT_COLS.filter(c => RPT.cols.includes(c[0]));
+  const mats = [...new Set(all.map(r => r.material))].sort(), cos = [...new Set(all.map(r => r.company || '(none)'))].sort();
+  const srcs = [...new Set(all.map(r => r.src))];
+  const chip = (on, label, click, color) => `<button class="fchip ${on?'on':''}" onclick="${click}" ${color ? `style="--mc:${esc(color)}"` : ''}>${color ? '<i></i>' : ''}${esc(label)}</button>`;
+  const toggle = (arr, v) => arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v];
+  window.__tg = toggle;
+  const T = totals(rows);
+  const head = `<tr>${cols.map(([k, l, n]) => `<th class="${n?'n':''} sortable" onclick="rptSort('${k}')">${l}${RPT.sort.key === k ? (RPT.sort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}<th class="noprint"></th></tr>`;
+  const line = r => `<tr>${cols.map(([k, , n]) => k === 'material' ? `<td><span class="chip" style="--mc:${esc(anyMat(r.material).color)}">${esc(r.material)}</span></td>`
+      : k === 'company' ? `<td><b>${esc(r.company || '—')}</b></td>` : k === 'container' ? `<td>${r.container ? `<b>${esc(r.container)}</b>` : '—'}</td>`
+      : k === 'net' ? `<td class="n">${r.net != null ? `<b>${kg(r.net)}</b>` : '<span class="warn">needs 2nd weigh</span>'}</td>`
+      : k === 'diff' ? `<td class="n ${r.diff==null?'':Math.abs(r.diff)>1000?'neg':'pos'}">${cellText(r, k)}</td>`
+      : `<td class="${n?'n':''}">${esc(cellText(r, k))}</td>`).join('')}
+      <td class="noprint" style="white-space:nowrap">${r.kind === 'container'
+        ? `<button class="small" onclick="editHist('${r.id}')">Edit</button> <button class="small danger" onclick="delHistRow('${r.id}')" title="Delete this load">✕</button>`
+        : `<button class="small" onclick="DAY='${r.day}';document.querySelector('#nav [data-v=daysheet]').click()">Open day</button>`}</td></tr>`;
+  const totRow = (t, label, cls = '') => `<tr class="${cls}">${cols.map(([k, , n, tot], i) =>
+      i === 0 ? `<td><b>${label}</b> <span class="muted">${t.n} load${t.n === 1 ? '' : 's'}</span></td>`
+      : k === 'perBale' ? `<td class="n"><b>${t.perBale != null ? bt(t.perBale) : ''}</b></td>`
+      : tot ? `<td class="n"><b>${k === 'bales' ? t.bales.toLocaleString('en-AU') : k === 'diff' ? signed(t.diff) : kg(t[k])}</b></td>` : '<td></td>').join('')}<td class="noprint"></td></tr>`;
+  let body = '';
+  if (RPT.group){
+    const groups = new Map(); rows.forEach(r => { const g = groupKey(r, RPT.group); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(r); });
+    groups.forEach((list, g) => { body += `<tr class="grp"><td colspan="${cols.length + 1}">${esc(g)}</td></tr>` + list.map(line).join('') + totRow(totals(list), 'Subtotal', 'sub'); });
+  } else body = rows.map(line).join('');
+  const [pf, pt] = RPT.preset === 'custom' ? [RPT.from, RPT.to] : presetRange(RPT.preset);
+  const active = S.reports.find(x => x.id === RPT_ACTIVE);
+
   $('#main').innerHTML = `
+    <div class="panel noprint">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div class="hrow">
+          <b style="margin-right:4px">Quick views</b>
+          ${chip(!RPT_ACTIVE, 'All loads', 'rptLoad(null)')}
+          ${S.reports.map(x => chip(RPT_ACTIVE === x.id, x.name, `rptLoad('${x.id}')`)).join('')}
+        </div>
+        <div class="hrow">
+          ${active ? `<button onclick="rptUpdate()">Update “${esc(active.name)}”</button><button class="danger" onclick="rptDelete()">Delete view</button>` : ''}
+          <button class="primary" onclick="rptSaveAs()">Save as quick view…</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel noprint rpt-filters">
+      <div class="row" style="align-items:flex-end">
+        <div><label>Dates</label><select onchange="rptSet({preset:this.value})">
+          ${[['all','All time'],['today','Today'],['week','This week'],['7d','Last 7 days'],['month','This month'],['lastmonth','Last month'],['fy','This financial year'],['lastfy','Last financial year'],['custom','Custom range']]
+            .map(([v, l]) => `<option value="${v}" ${RPT.preset===v?'selected':''}>${l}</option>`).join('')}</select></div>
+        ${RPT.preset === 'custom' ? `<div><label>From</label><input type="date" value="${RPT.from||''}" onchange="rptSet({from:this.value})"></div>
+          <div><label>To</label><input type="date" value="${RPT.to||''}" onchange="rptSet({to:this.value})"></div>` : ''}
+        <div><label>Weighed</label><select onchange="rptSet({weighed:this.value})">${[['all','All'],['yes','Weighed only'],['no','Needs 2nd weigh']].map(([v,l]) => `<option value="${v}" ${RPT.weighed===v?'selected':''}>${l}</option>`).join('')}</select></div>
+        <div><label>Group by</label><select onchange="rptSet({group:this.value})">${[['','No grouping'],['material','Material'],['company','Company'],['src','Type'],['month','Month'],['week','Week']].map(([v,l]) => `<option value="${v}" ${RPT.group===v?'selected':''}>${l}</option>`).join('')}</select></div>
+        <div><label>Search</label><input value="${esc(RPT.search)}" placeholder="container, order, rego…" onchange="rptSet({search:this.value})" style="width:200px"></div>
+        <div><label>&nbsp;</label><button onclick="RPT_ACTIVE=null;rptSet(Object.assign(RPT_DEFAULT(),{cols:RPT.cols}))">Clear filters</button></div>
+      </div>
+      <div class="frow"><span>Type</span>${srcs.map(v => chip(RPT.src.includes(v), v, `rptSet({src:__tg(RPT.src,'${v}')})`)).join('')}</div>
+      <div class="frow"><span>Material</span>${mats.map(v => chip(RPT.materials.includes(v), v, `rptSet({materials:__tg(RPT.materials,${JSON.stringify(v).replace(/"/g,'&quot;')})})`, anyMat(v).color)).join('') || '<span class="muted">—</span>'}</div>
+      <div class="frow"><span>Company</span>${cos.map(v => chip(RPT.companies.includes(v), v, `rptSet({companies:__tg(RPT.companies,${JSON.stringify(v).replace(/"/g,'&quot;')})})`)).join('') || '<span class="muted">—</span>'}</div>
+      <details class="cols-pick"><summary>Columns (${cols.length})</summary>
+        <div class="row" style="margin-top:6px">${RPT_COLS.map(([k, l]) => `<label class="ck"><input type="checkbox" ${RPT.cols.includes(k)?'checked':''} onchange="rptCol('${k}',this.checked)"> ${l}</label>`).join('')}</div>
+      </details>
+    </div>
+
     <div class="panel">
       <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
-        <h2 style="margin:0">Dispatched loads</h2>
-        <button onclick="exportCSV()" ${h.length?'':'disabled'}>Export CSV</button>
+        <h2 style="margin:0">${active ? esc(active.name) : 'Loads'} <span class="muted" style="font-size:14px;font-weight:400">${pf || pt ? `${pf ? fmtDay(pf) : '…'} – ${pt ? fmtDay(pt) : '…'}` : 'all time'}</span></h2>
+        <div class="hrow noprint"><button onclick="exportCSV()" ${rows.length?'':'disabled'}>Export CSV</button><button onclick="window.print()">Print</button></div>
       </div>
-      <p class="muted"><b>Net (weighed)</b> = 2nd weigh − 1st weigh + empty container tare − full container tare. If a load is missing its 2nd weigh, click Edit to add it. Weighed loads feed the learned bale averages in Setup → Materials.</p>
-      <div class="tbl-wrap"><table>
-        <tr><th>Date</th><th>Bay</th><th>Out</th><th>Mat.</th><th class="n">Bales / target</th><th class="n">Est. load</th><th>Order no.</th><th>Company</th><th>Truck</th><th>In</th>
-            <th class="n">1st weigh</th><th class="n">2nd weigh</th><th class="n">Net (weighed)</th><th class="n">t/bale</th><th class="n">vs bale est.</th><th></th></tr>
-        ${h.length ? h.map(x => { const c = hCalc(x); return `<tr>
-          <td>${fmtDate(x.date)}</td><td>${x.bay}</td><td><b>${esc(x.outId)}</b></td>
-          <td><span class="chip" style="--mc:${esc(mat(x.material).color)}">${esc(x.material)}</span></td>
-          <td class="n">${x.bales}${x.target ? `<span class="muted"> / ${x.target}</span>` : ''}</td><td class="n">${kg(x.estNet)}</td><td>${esc(x.orderNo||'—')}</td><td><b>${esc(x.company||'—')}</b></td><td>${esc(x.rego||'—')}</td><td>${esc(x.inId||'—')}</td>
-          <td class="n">${kg(x.weighIn)}</td><td class="n">${kg(x.actualOut)}</td>
-          <td class="n">${c.actualNet!=null ? `<b>${kg(c.actualNet)}</b>` : '<span class="warn">needs 2nd weigh</span>'}</td><td class="n">${c.perBale!=null?bt(c.perBale):'—'}</td>
-          <td class="n ${c.actualNet==null?'':Math.abs(c.actualNet-x.estNet)>1000?'neg':'pos'}">${c.actualNet!=null?signed(c.actualNet-x.estNet):'—'}</td>
-          <td style="display:flex;gap:4px"><button class="small" onclick="editHist('${x.id}')">Edit</button><button class="small danger" onclick="delHistRow('${x.id}')" title="Delete this load">✕</button></td>
-        </tr>`; }).join('') : `<tr><td colspan="16" class="muted">No loads dispatched yet. Use <b>Truck swap</b> on a bay.</td></tr>`}
-      </table></div>
+      <div class="summary" style="margin-bottom:12px">
+        <div class="stat"><span>Loads</span><b>${T.n}</b></div>
+        <div class="stat"><span>Bales</span><b>${T.bales.toLocaleString('en-AU')}</b></div>
+        <div class="stat"><span>Net weighed</span><b>${tn(T.net)}</b></div>
+        <div class="stat"><span>Avg per bale</span><b>${T.perBale != null ? bt(T.perBale) : '—'}</b></div>
+      </div>
+      <div class="tbl-wrap"><table class="rpt">${head}${rows.length ? body + totRow(T, 'Total', 'tot') : `<tr><td colspan="${cols.length + 1}" class="muted">No loads match.</td></tr>`}</table></div>
+      <p class="muted noprint"><b>Net (weighed)</b> for containers = 2nd weigh − 1st weigh + empty tare − full tare. For trucks it's weigh-out − tare. Click a column heading to sort.</p>
     </div>`;
 }
+function rptSort(k){ RPT.sort = RPT.sort.key === k ? { key: k, dir: -RPT.sort.dir } : { key: k, dir: k === 'date' ? -1 : (RPT_COLS.find(c => c[0] === k)[2] ? -1 : 1) }; rptSet({}); }
+function rptCol(k, on){ const cols = on ? RPT_COLS.map(c => c[0]).filter(x => x === k || RPT.cols.includes(x)) : RPT.cols.filter(x => x !== k); if (!cols.length) return render(); rptSet({ cols }); }
+const rptCfg = () => JSON.parse(JSON.stringify(RPT));
+function rptLoad(id){
+  RPT_ACTIVE = id;
+  const x = id && S.reports.find(r => r.id === id);
+  rptSet(Object.assign(RPT_DEFAULT(), x ? x.cfg : {}));
+}
+function rptSaveAs(){
+  openDlg('Save quick view', `<label>Name</label><input id="rp-name" style="width:100%" placeholder="e.g. Visy — this month">
+    <p class="muted">Saves the current filters, grouping, sort and columns. Dates are saved as the choice (e.g. "This month"), so the view always shows the current period.</p>`,
+    `<button onclick="closeDlg()">Cancel</button><button class="primary" onclick="rptDoSave()">Save</button>`);
+  setTimeout(() => $('#rp-name')?.focus(), 50);
+}
+function rptDoSave(){
+  const name = $('#rp-name').value.trim(); if (!name) return toast('Enter a name');
+  const x = { id: uid(), name, cfg: rptCfg() }; S.reports.push(x); RPT_ACTIVE = x.id; save(); closeDlg(); render(); toast(`Saved “${name}”`);
+}
+function rptUpdate(){ const x = S.reports.find(r => r.id === RPT_ACTIVE); if (!x) return; x.cfg = rptCfg(); save(); render(); toast(`Updated “${x.name}”`); }
+function rptDelete(){ const x = S.reports.find(r => r.id === RPT_ACTIVE); if (!x || !confirm(`Delete the quick view “${x.name}”?`)) return; S.reports = S.reports.filter(r => r !== x); RPT_ACTIVE = null; save(); render(); }
+
 function editHist(id){
   const x = S.history.find(h => h.id===id);
   openDlg(`Load ${x.outId} — ${fmtDate(x.date)}`, `
@@ -1793,11 +1971,13 @@ function delHistRow(id){
 }
 function delHist(id){ if (!confirm('Delete this load from history?')) return; S.history = S.history.filter(h => h.id!==id); save(); closeDlg(); render(); }
 function exportCSV(){
-  const T = v => v==null || v==='' ? '' : (v/1000).toFixed(3);
-  const head = ['Date','Bay','Container out','Out tare (t)','Material','Bales','Target bales','Avg t/bale used','Est load (t)','Linfox order no.','Company','Truck rego','Container in','In tare (t)','1st weigh (t)','Truck tare (t)','Expected 2nd weigh (t)','2nd weigh (t)','Net weighed (t)','Actual t/bale','Net vs bale est (t)'];
-  const rows = S.history.map(x => { const c = hCalc(x); return [new Date(x.date).toLocaleString('en-AU'), x.bay, x.outId, T(x.outTare), x.material, x.bales, x.target??'', T(x.baleKg), T(x.estNet), x.orderNo||'', x.company||'', x.rego, x.inId||'', T(x.inTare), T(x.weighIn), T(c.truckTare), T(c.predicted), T(x.actualOut), T(c.actualNet), T(c.perBale), T(c.actualNet!=null ? c.actualNet - x.estNet : null)]; });
-  const csv = [head, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
-  download(`container-loads-${new Date().toISOString().slice(0,10)}.csv`, csv, 'text/csv');
+  const cols = RPT_COLS.filter(c => RPT.cols.includes(c[0])), rows = filteredRows();
+  const val = (r, k) => ['est','weighIn','weighOut','net','diff','perBale'].includes(k) ? (r[k] == null ? '' : (r[k] / 1000).toFixed(3))
+    : k === 'date' ? r.day.split('-').reverse().join('/') : (r[k] ?? '');
+  const head = cols.map(([k, l]) => ['est','weighIn','weighOut','net','diff'].includes(k) ? l + ' (t)' : l);
+  const csv = [head, ...rows.map(r => cols.map(([k]) => val(r, k)))].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const name = (S.reports.find(x => x.id === RPT_ACTIVE)?.name || 'loads').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase();
+  download(`${name}-${ymd()}.csv`, csv, 'text/csv');
 }
 
 
@@ -1966,6 +2146,7 @@ function toDocs(st){
   out.settings.set('forms', { byLocation: st.forms || {} });
   out.settings.set('crs', { lots: st.lots || [], materials: st.crsMaterials || [] });
   out.settings.set('locations', { list: st.deliveryLocations || [] });
+  out.settings.set('reports', { list: st.reports || [] });
   (st.loads||[]).forEach(l => out.loads.set(l.id, l));
   return out;
 }
@@ -1985,6 +2166,7 @@ function fromRemote(){
   s.companies = sdoc('companies')?.names || [];
   const cfgs = sdoc('truckConfigs')?.list; if (cfgs && cfgs.length) s.truckConfigs = cfgs;
   s.loads = vals('loads');
+  s.reports = sdoc('reports')?.list || [];
   const locs = sdoc('locations')?.list; if (locs && locs.length) s.deliveryLocations = locs;
   const crs = sdoc('crs');
   if (crs){ s.lots = crs.lots || []; if (crs.materials?.length) s.crsMaterials = crs.materials; }
