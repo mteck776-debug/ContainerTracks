@@ -895,7 +895,7 @@ function openClear(n){
     <div class="clear-opts">
       <button onclick="doClear(${n},'bales')"><b>Reset bales to 0</b><small>Keeps the container in the bay. Also clears the booking and any saved weigh-in.</small></button>
       <button onclick="doClear(${n},'remove')"><b>Take the container out of the bay</b><small>Bay becomes empty. ${esc(c.id)} stays in the container register.</small></button>
-      <button class="danger" onclick="doClear(${n},'delete')"><b>Remove and delete ${esc(c.id)}</b><small>Bay becomes empty and the container is deleted from the register. Past loads in History are kept.</small></button>
+      <button class="danger" onclick="doClear(${n},'delete')"><b>Remove and delete ${esc(c.id)}</b><small>Bay becomes empty and the container is deleted from the register. Past loads in Reports are kept.</small></button>
     </div>`,
     `<button class="primary" onclick="closeDlg()">Cancel</button>`);
 }
@@ -1694,7 +1694,7 @@ function delPrefix(pre){
 function setNotes(id, v){ cont(id).notes = v.trim(); save(); }
 function delContainer(id){
   const b = bayOf(id);
-  if (!confirm(`Delete ${id} from the register?${b ? `\n\nIt's in Bay ${b.n} with ${b.bales} bales — the bay will be emptied.` : ''}\n\nPast loads in History are kept.`)) return;
+  if (!confirm(`Delete ${id} from the register?${b ? `\n\nIt's in Bay ${b.n} with ${b.bales} bales — the bay will be emptied.` : ''}\n\nPast loads in Reports are kept.`)) return;
   if (b){ b.containerId = null; b.bales = 0; b.startedAt = null; b.log = []; b.booking = null; b.visit = null; }
   S.containers = S.containers.filter(c => c.id !== id); save(); render(); toast(`${id} deleted`);
 }
@@ -1792,7 +1792,7 @@ function addMat(){
   S.materials.push({ code, name:$('#m-name').value.trim() || code, baleKg:kgv, typical:num($('#m-typ').value)||0, color:palette[S.materials.length % palette.length], orderPrefix:'', orderDigits:3, orderLast:0, deliveryTo: $('#m-loc')?.value || (S.deliveryLocations[0]?.name || ''), deliveryInstr:'' });
   save(); render();
 }
-function delMat(i){ if (!confirm(`Delete ${S.materials[i].code}? History keeps its records.`)) return; S.materials.splice(i,1); save(); render(); }
+function delMat(i){ if (!confirm(`Delete ${S.materials[i].code}? Reports keep its records.`)) return; S.materials.splice(i,1); save(); render(); }
 
 /* =========================================================
    HISTORY — reports
