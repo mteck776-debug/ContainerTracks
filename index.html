@@ -2064,13 +2064,10 @@ function renderHistory(){
         <div class="stat"><span>Net weighed</span><b>${tn(T.net)}</b></div>
         <div class="stat"><span>Avg per bale</span><b>${T.perBale != null ? bt(T.perBale) : '—'}</b></div>
       </div>
-      ${RPT.showCharts === false ? `<div class="noprint" style="margin:-4px 0 10px"><button class="small" onclick="rptSet({showCharts:true})">Show charts</button></div>` : ''}
-    </div>
-    ${RPT.showCharts !== false ? chartsPanel(rows) : ''}
-    <div class="panel">
       <div class="tbl-wrap"><table class="rpt">${head}${rows.length ? body + totRow(T, 'Total', 'tot') : `<tr><td colspan="${cols.length + 1}" class="muted">No loads match.</td></tr>`}</table></div>
       <p class="muted noprint"><b>Net (weighed)</b> for containers = 2nd weigh − 1st weigh + empty tare − full tare. For trucks it's weigh-out − tare. Click a column heading to sort.</p>
-    </div>`;
+    </div>
+    ${RPT.showCharts !== false ? chartsPanel(rows) : `<div class="noprint"><button onclick="rptSet({showCharts:true})">Show charts</button></div>`}`;
 }
 function rptSort(k){ RPT.sort = RPT.sort.key === k ? { key: k, dir: -RPT.sort.dir } : { key: k, dir: k === 'date' ? -1 : (RPT_COLS.find(c => c[0] === k)[2] ? -1 : 1) }; rptSet({}); }
 function rptCol(k, on){ const cols = on ? RPT_COLS.map(c => c[0]).filter(x => x === k || RPT.cols.includes(x)) : RPT.cols.filter(x => x !== k); if (!cols.length) return render(); rptSet({ cols }); }
