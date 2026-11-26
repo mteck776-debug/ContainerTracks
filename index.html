@@ -2154,11 +2154,11 @@ function printPrices(){
    SETUP — all the background data in one place
    ========================================================= */
 const SETUP_SECTIONS = [['s-materials','Materials'],['s-crs','CRS commodities'],['s-locations','Delivery locations'],['s-linfox','Linfox bookings'],
-  ['s-tares','Container tares'],['s-register','Container register'],['s-vehicles','Vehicles'],['s-setups','Truck setups'],['s-companies','Companies'],['s-backup','Backup'],['s-prices','Prices']];
+  ['s-tares','Container tares'],['s-register','Container register'],['s-vehicles','Vehicles'],['s-setups','Truck setups'],['s-companies','Companies'],['s-prices','Prices'],['s-backup','Backup']];
 function renderSetup(){
   $('#main').innerHTML = `
     <div class="setup-nav">${SETUP_SECTIONS.map(([id, t]) => `<a href="#" onclick="jumpTo('${id}');return false">${t}</a>`).join('')}</div>
-    ${secMaterials()}${secCrs()}${secLocations()}${secLinfox()}${secContainers()}${secVehicles()}${secSetups()}${secCompanies()}${secBackup()}${secPrices()}`;
+    ${secMaterials()}${secCrs()}${secLocations()}${secLinfox()}${secContainers()}${secVehicles()}${secSetups()}${secCompanies()}${secPrices()}${secBackup()}`;
 }
 function jumpTo(id){ const el = document.getElementById(id); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - 120, behavior: 'smooth' }); }
 function secVehicles(){
@@ -2249,7 +2249,7 @@ function recoveryPanel(){
   const hasLocal = CLOUD && local && ((local.containers||[]).length || (local.history||[]).length);
   return `<div class="panel">
     <h2>Recover earlier data</h2>
-    <p class="muted">This browser keeps automatic copies as you work. If something goes missing, restore an earlier version here. Copies only exist on the device where the work was done, so check the PC or tablet the containers were entered on.</p>
+    <p class="muted">This browser keeps the 5 most recent automatic copies as you work (at least 30 minutes apart). If something goes missing, restore an earlier version here. Copies only exist on the device where the work was done, so check the PC or tablet the containers were entered on.</p>
     ${hasLocal ? `<div class="note" style="margin-bottom:10px">This device has data saved from <b>before the shared database</b>: ${summarise(local)}. <button class="small primary" onclick="restoreLocal()">Restore it</button></div>` : ''}
     ${snaps.length ? `<div class="tbl-wrap"><table><tr><th>Saved</th><th>Contents</th><th></th></tr>
       ${snaps.map((sn, i) => ({ sn, i })).reverse().map(({ sn, i }) => { let d = {}; try { d = JSON.parse(sn.data); } catch(e) {}
@@ -2448,10 +2448,11 @@ function firstLoad(confirmed){
 }
 
 /* ---------- automatic backups on this device ----------
-   Every change is kept in this browser (last 40 versions, one per 5 minutes),
+   Changes are kept in this browser: the 5 most recent versions, at least 30 minutes apart,
    so a mistake can be rolled back from the Backup tab. */
 const SNAP_KEY = 'containertracks:snapshots';
-function getSnaps(){ try { return JSON.parse(localStorage.getItem(SNAP_KEY)) || []; } catch(e){ return []; } }
+const SNAP_MAX = 5, SNAP_GAP = 30 * 60 * 1000;     // keep 5 backups, at least 30 minutes apart
+function getSnaps(){ try { return (JSON.parse(localStorage.getItem(SNAP_KEY)) || []).slice(-SNAP_MAX); } catch(e){ return []; } }
 function autoSnapshot(){
   const hasData = S.containers.length || S.history.length || S.bays.some(b => b.containerId);
   if (!hasData) return;                                   // never back up an empty yard over a full one
@@ -2459,9 +2460,9 @@ function autoSnapshot(){
     const snaps = getSnaps(), data = JSON.stringify(S), now = Date.now();
     const last = snaps[snaps.length - 1];
     if (last && last.data === data) return;
-    if (last && now - last.t < 5*60*1000) snaps[snaps.length - 1] = { t: now, data };
+    if (last && now - last.t < SNAP_GAP) snaps[snaps.length - 1] = { t: now, data };
     else snaps.push({ t: now, data });
-    while (snaps.length > 40) snaps.shift();
+    while (snaps.length > SNAP_MAX) snaps.shift();
     localStorage.setItem(SNAP_KEY, JSON.stringify(snaps));
   } catch(e) {}
 }
@@ -2523,6 +2524,7 @@ function cloudSignOut(){ if (confirm('Sign out?')) CLOUD.A.signOut(CLOUD.auth); 
 
 /* ---------- start ---------- */
 restoreUI();
+try { localStorage.setItem(SNAP_KEY, JSON.stringify(getSnaps())); } catch(e) {}   // trim old backups to the newest 5
 if (window.FIREBASE_CONFIG){ S = defaults(); $('#main').innerHTML = '<div class="panel">Connecting…</div>'; }
 else { load(); render(); }
 </script>
