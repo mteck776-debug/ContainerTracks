@@ -531,7 +531,7 @@ function render(){
 /* ---------- Run Sheet (runsheet.html in a frame) ----------
    The run sheet keeps working on its own; every change it makes is posted up here,
    stored in S.runsheet and synced like everything else (Firestore settings/runsheet). */
-const RS_VER = '8';   // bump when runsheet.html changes
+const RS_VER = '9';   // bump when runsheet.html changes
 let RS_READY = false, RS_LAST = '', RS_DIRTY = false, _rsT = null;
 function rsFrame(){ return $('#rs-frame'); }
 /* yard screen: everything read-only except bale counts and the Filled button */

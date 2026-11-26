@@ -57,6 +57,9 @@ body.viewonly #toolbar,body.viewonly #hint,body.viewonly #side,body.viewonly #vi
 body.viewonly #layout{grid-template-columns:1fr}
 body.viewonly .cell,body.viewonly .cm,body.viewonly .mk{cursor:default!important;outline:none!important;box-shadow:none!important}
 body.viewonly .mk:hover,body.viewonly .cm:hover{background:none!important}
+/* office "Sheet only": the yard's clean look, still editable */
+body.clean #hint,body.clean #side,body.clean .legend,body.clean button.off,body.clean .ctext{display:none!important}
+body.clean #layout{grid-template-columns:1fr}
 #past{background:#fff;border:2px solid #2563eb;border-radius:8px;padding:10px;font-size:13px}
 #past .sm{color:#475569;margin:2px 0 6px}
 #past .pr{display:flex;align-items:center;gap:8px;padding:5px 4px;border-top:1px solid #e2e8f0}
@@ -161,6 +164,7 @@ body.editing .tctl{display:block}
   <label class="btn">MAMS logo<input type="file" id="logo1In" accept="image/*" hidden></label>
   <label class="btn">Containers logo<input type="file" id="logo2In" accept="image/*" hidden></label>
   <span class="sp"></span>
+  <button id="btnClean" title="Hide the paste boxes, past sheets and hints so just the sheet shows. Still editable.">Sheet only</button>
   <button id="btnFit" title="Shrink the sheet so it fits on the screen without scrolling">Fit to screen</button>
   <button id="btnConfirm" class="confirm" title="Lock the sheet, then tap letters and commodities as they are done">Confirm run sheet</button>
   <button id="btnNew">New day</button>
@@ -371,7 +375,7 @@ function render(){
   h+='<div class="notes"><b>Notes:</b><textarea id="notes">'+esc(st.notes)+'</textarea></div>';
   $('sheet').innerHTML=h;
   $('dateIn').value=st.date;
-  update();updateHint();renderPast();applyLock();fit();
+  update();updateHint();renderPast();applyLock();applyClean();fit();
 }
 function update(){
   var tot={A:0,P:0,G:0,B:0,C:0},off=offList(),s,t;
@@ -412,6 +416,8 @@ function applyLock(){
   }else $('hint').className='noprint';
 }
 /* ----- fit the whole sheet on screen (screen only; printing is always full size) ----- */
+var CLEAN=false;try{CLEAN=!VIEWONLY&&localStorage.getItem('mams-runsheet-clean')==='1';}catch(e){}
+function applyClean(){document.body.classList.toggle('clean',CLEAN);var b=$('btnClean');b.classList.toggle('on',CLEAN);b.textContent=CLEAN?'Show tools':'Sheet only';}
 var FIT=true;try{FIT=localStorage.getItem('mams-runsheet-fit')!=='0';}catch(e){}
 function fit(){
   var sh=$('sheet'),w=$('sheetWrap');if(!sh||!w)return;
@@ -533,6 +539,7 @@ sheet.addEventListener('change',function(e){
 /* ----- toolbar ----- */
 $('dateIn').addEventListener('change',function(){if(this.value){st.date=this.value;save();render();}});
 $('btnEdit').addEventListener('click',function(){editing=!editing;render();});
+$('btnClean').addEventListener('click',function(){CLEAN=!CLEAN;try{localStorage.setItem('mams-runsheet-clean',CLEAN?'1':'0');}catch(e){}applyClean();fit();});
 $('btnFit').addEventListener('click',function(){FIT=!FIT;try{localStorage.setItem('mams-runsheet-fit',FIT?'1':'0');}catch(e){}fit();});
 $('btnConfirm').addEventListener('click',function(){var c=confW();c.on=!c.on;if(c.on)editing=false;save();render();});
 $('btnPrint').addEventListener('click',function(){if(document.activeElement)document.activeElement.blur();window.print();});
