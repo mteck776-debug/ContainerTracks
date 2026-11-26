@@ -477,11 +477,37 @@ $('#nav').addEventListener('click', e => {
   const b = e.target.closest('button[data-v]'); if (!b) return;
   view = b.dataset.v;
   document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('on', x===b));
-  render();
+  scrollTo(0, 0); render();
 });
 function render(){
   ({ yard:renderYard, daysheet:renderDaySheet, lots:renderLots, history:renderHistory, setup:renderSetup })[view]();
+  if (PENDING_SCROLL != null){ const y = PENDING_SCROLL; PENDING_SCROLL = null; requestAnimationFrame(() => scrollTo(0, y)); }
+  else saveUI();
 }
+
+/* ---------- remember where you were (this device only) ----------
+   Tab, scroll position, Day Sheet date (same day only), History view and price-sheet quarter. */
+const UI_KEY = 'containertracks:ui';
+let PENDING_SCROLL = null;
+function saveUI(){
+  try { localStorage.setItem(UI_KEY, JSON.stringify({ view, day: DAY, dayOn: ymd(), ps: PS_ID, rpt: RPT_ACTIVE, colsOpen: RPT_COLS_OPEN, lotsShown: LOTS_SHOWN, scroll: Math.round(scrollY) })); } catch(e) {}
+}
+function restoreUI(){
+  let u = null; try { u = JSON.parse(localStorage.getItem(UI_KEY)); } catch(e) {}
+  if (!u) return;
+  if (u.view && document.querySelector(`#nav [data-v="${u.view}"]`)){
+    view = u.view; document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('on', x.dataset.v === view));
+  }
+  if (u.day && u.dayOn === ymd()) DAY = u.day;         // a new day opens on today
+  if (u.ps) PS_ID = u.ps;
+  if (u.rpt) RPT_ACTIVE = u.rpt;
+  RPT_COLS_OPEN = !!u.colsOpen;
+  if (u.lotsShown) LOTS_SHOWN = u.lotsShown;
+  if (u.scroll) PENDING_SCROLL = u.scroll;
+}
+let _scrollT = null;
+addEventListener('scroll', () => { clearTimeout(_scrollT); _scrollT = setTimeout(saveUI, 250); }, { passive: true });
+addEventListener('pagehide', saveUI);
 
 /* =========================================================
    YARD
@@ -1799,7 +1825,7 @@ const RPT_DEFAULT = () => ({ preset: 'all', from: '', to: '', src: [], materials
 const RPT_KEY = 'containertracks:report';
 let RPT = (() => { try { return Object.assign(RPT_DEFAULT(), JSON.parse(localStorage.getItem(RPT_KEY)) || {}); } catch(e){ return RPT_DEFAULT(); } })();
 let RPT_ACTIVE = null;
-let RPT_COLS_OPEN = false;                   // keep the Columns list open while ticking boxes                       // id of the saved report being viewed
+let RPT_COLS_OPEN = false;                   // keep the Columns list open while ticking boxes
 function rptSet(patch){ Object.assign(RPT, patch); try { localStorage.setItem(RPT_KEY, JSON.stringify(RPT)); } catch(e) {} render(); }
 
 function reportRows(){
@@ -2496,6 +2522,7 @@ async function cloudReset(){
 function cloudSignOut(){ if (confirm('Sign out?')) CLOUD.A.signOut(CLOUD.auth); }
 
 /* ---------- start ---------- */
+restoreUI();
 if (window.FIREBASE_CONFIG){ S = defaults(); $('#main').innerHTML = '<div class="panel">Connecting…</div>'; }
 else { load(); render(); }
 </script>
