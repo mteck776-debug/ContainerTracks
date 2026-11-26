@@ -219,6 +219,7 @@
   .pill.warn{background:#fff3e0;color:#8a4b08}
   .panel.lot-sold{border-left:6px solid #f0b429}
   .panel.mams{border-left:6px solid #2563eb}
+  h3.mat-grp{margin:14px 0 6px;font-size:16px;letter-spacing:.06em;color:var(--accent)}
   .mams-item.done{opacity:.5;text-decoration:line-through}
   .tag a{color:var(--muted);text-decoration:none}
   @media print{
@@ -355,6 +356,12 @@ function migrate(st){
     { code:'CRS Steel',      name:'CRS Steel',       color:'#334155' },
     { code:'CRS LPB',        name:'CRS Liquid Paperboard', color:'#a16207' },
   ];
+  st.crsMaterials.forEach(m => {
+    if (m.baleKg == null) m.baleKg = 0;
+    if (m.typical == null) m.typical = 0;
+    if (m.deliveryTo == null){ m.deliveryTo = ''; m.deliveryInstr = ''; }
+    if (m.orderPrefix == null){ m.orderPrefix = ''; m.orderDigits = 3; m.orderLast = 0; }
+  });
   if ('genuine' in st.forms){                 // earlier version kept one Genuine form
     const g = st.forms.genuine; delete st.forms.genuine;
     if (g && !st.forms[locKey(GRG)]) st.forms[locKey(GRG)] = Object.assign({ fields:['Text 1','Text 2'], map:{ 'Text 1':'container', 'Text 2':'tare' } }, g);
@@ -397,7 +404,11 @@ function save(){
   catch(e){ toast('Could not save — browser storage is blocked'); }
 }
 
-const mat  = code => S.materials.find(m => m.code === code) || { code, name:code, baleKg:0, typical:0, color:'#888' };
+const mat  = code => S.materials.find(m => m.code === code) || (S.crsMaterials || []).find(m => m.code === code) || { code, name:code, baleKg:0, typical:0, color:'#888' };
+const grpList = g => g === 'crs' ? S.crsMaterials : S.materials;
+/* <option>s for both groups: MRF first, then CRS */
+const bothOpts = (sel, label = m => m.code) => [['MRF', S.materials], ['CRS', S.crsMaterials || []]].filter(([, l]) => l.length)
+  .map(([g, l]) => `<optgroup label="${g}">${l.map(m => `<option value="${esc(m.code)}" ${m.code===sel?'selected':''}>${esc(label(m))}</option>`).join('')}</optgroup>`).join('');
 const cont = id => S.containers.find(c => c.id === id);
 const bayOf = id => S.bays.find(b => b.containerId === id);
 /* bales to aim for: bay override, else the material's default target */
@@ -472,7 +483,7 @@ function where(c){
   if (c.outSince) return `Out on truck (${fmtDate(c.outSince)})`;
   return 'Spare / not placed';
 }
-const matOptions = sel => S.materials.map(m => `<option value="${esc(m.code)}" ${m.code===sel?'selected':''}>${esc(m.code)} — ${esc(m.name)}</option>`).join('');
+const matOptions = sel => bothOpts(sel, m => `${m.code} — ${m.name}`);
 
 /* history maths — derived, so editing weigh-in / weigh-out later just works */
 function hCalc(h){
@@ -660,7 +671,7 @@ function bayCard(b){
         <span class="bay-no">Bay ${b.n}</span>
         <span style="display:flex;gap:6px;align-items:center">
         <button class="small clr" onclick="openClear(${b.n})" title="Clear this bay">✕</button>
-        <select onchange="setMat(${b.n},this.value)" title="Material">${S.materials.map(x=>`<option value="${esc(x.code)}" ${x.code===b.material?'selected':''}>${esc(x.code)}</option>`).join('')}</select>
+        <select onchange="setMat(${b.n},this.value)" title="Material">${bothOpts(b.material)}</select>
         </span>
       </div>
       <div><div class="cid">${esc(c.id)}</div><div class="muted">${tare!=null ? `Tare ${kg(tare)}${tareSrc(c)}` : '<span class="neg">Tare unknown — set it in Setup</span>'}${b.startedAt?` · loading since ${fmtDate(b.startedAt)}`:''}</div></div>
@@ -812,7 +823,7 @@ function secLocations(){
       <div class="tbl-wrap"><table>
         <tr><th>Location (as on Linfox)</th><th>Delivery instructions</th><th>Used by</th><th>Weight declaration form</th><th>What goes in each box</th><th></th></tr>
         ${S.deliveryLocations.map((d, i) => { const loc = locKey(d.name), f = S.forms[loc], key = JSON.stringify(loc).replace(/"/g, '&quot;');
-          const users = S.materials.filter(m => locKey(m.deliveryTo) === loc); return `<tr>
+          const users = [...S.materials, ...S.crsMaterials].filter(m => locKey(m.deliveryTo) === loc); return `<tr>
           <td><input value="${esc(d.name)}" onchange="renameLoc(${i}, this.value)" style="width:220px;font-weight:700"></td>
           <td><input value="${esc(d.instr||'')}" placeholder="none" onchange="setLocInstr(${i}, this.value)" style="width:280px"></td>
           <td>${users.map(m => `<span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span>`).join(' ') || '<span class="muted">—</span>'}</td>
@@ -843,7 +854,7 @@ function renameLoc(i, v){
   const d = S.deliveryLocations[i], name = String(v).trim(), oldKey = locKey(d.name), newKey = locKey(name);
   if (!name) return render();
   if (newKey !== oldKey && S.deliveryLocations.some(x => locKey(x.name) === newKey)) { render(); return toast('That location already exists'); }
-  S.materials.forEach(m => { if (locKey(m.deliveryTo) === oldKey) m.deliveryTo = name; });
+  [...S.materials, ...S.crsMaterials].forEach(m => { if (locKey(m.deliveryTo) === oldKey) m.deliveryTo = name; });
   if (newKey !== oldKey && S.forms[oldKey]){ const f = Object.assign({}, S.forms); f[newKey] = f[oldKey]; delete f[oldKey]; S.forms = f; }
   d.name = name; save(); render(); toast('Location renamed');
 }
@@ -1354,7 +1365,7 @@ function renderDaySheet(){
   const today = ymd();
   const upcoming = S.loads.filter(l => l.date > today).sort((a,b) => a.date.localeCompare(b.date));
   const cfgOpts = sel => S.truckConfigs.map(c => `<option value="${esc(c.id)}" ${c.id===sel?'selected':''}>${esc(c.name)} (${tn(c.maxGross)})</option>`).join('');
-  const matOpts = sel => S.materials.map(m => `<option value="${esc(m.code)}" ${m.code===sel?'selected':''}>${esc(m.code)}</option>`).join('');
+  const matOpts = sel => bothOpts(sel);
   const totNet = day.reduce((s,l) => s + (loadCalc(l).net || 0), 0);
   const pill = st => ({ planned:'<span class="pill">Expected</span>', in:'<span class="pill in">On site</span>', done:'<span class="pill done">Done ✓</span>' })[st];
 
@@ -1698,13 +1709,6 @@ function delLot(id){
   S.lots = S.lots.filter(x => x.id !== id); if (d) S.loads = S.loads.filter(x => x.id !== d.id);
   save(); render();
 }
-function addCrs(){
-  let c = $('#crs-new').value.trim(); if (!c) return;
-  if (!/^CRS\b/i.test(c)) c = 'CRS ' + c;
-  if (S.crsMaterials.some(m => m.code.toLowerCase() === c.toLowerCase())) return toast('Already in the list');
-  const pal = ['#0e7490','#7c3aed','#be185d','#15803d','#b45309','#475569'];
-  S.crsMaterials.push({ code: c, name: c, color: pal[S.crsMaterials.length % pal.length] }); save(); render();
-}
 function delCrs(i){ const m = S.crsMaterials[i]; if (S.lots.some(l => l.commodity === m.code && l.status !== 'collected')) return toast(`${m.code} has open lots`); if (!confirm(`Remove ${m.code}?`)) return; S.crsMaterials.splice(i, 1); save(); render(); }
 
 /* Day Sheet panel: sold lots still waiting for transport */
@@ -1848,35 +1852,48 @@ function delTruck(r){ delete S.trucks[r]; save(); render(); }
 /* =========================================================
    MATERIALS
    ========================================================= */
+function matRows(g){
+  const list = grpList(g);
+  return list.map((m,i) => { const l = learned(m.code), G = g === 'crs' ? ",'crs'" : ''; return `<tr>
+          <td><input type="color" value="${esc(m.color)}" onchange="setMatField(${i},'color',this.value${G})" style="width:44px;padding:2px"></td>
+          <td><span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span></td>
+          <td><input class="wide" value="${esc(m.name)}" onchange="setMatField(${i},'name',this.value${G})" style="width:150px"></td>
+          <td class="n"><input type="number" step="0.005" value="${m.baleKg ? tv(m.baleKg,3) : ''}" placeholder="set" onchange="setMatField(${i},'baleKg',this.value${G})" style="width:90px"></td>
+          <td class="n"><input type="number" value="${m.typical||''}" onchange="setMatField(${i},'typical',this.value${G})" style="width:80px"></td>
+          <td class="n">${l ? `<b>${bt(l.avg)}</b> <span class="muted">(${l.loads} load${l.loads>1?'s':''})</span> <button class="small" onclick="useLearned(${i}${G})">Use</button>` : '<span class="muted">no weigh-outs yet</span>'}</td>
+          <td><select onchange="setMatField(${i},'deliveryTo',this.value${G})" style="max-width:220px">${S.deliveryLocations.some(d => locKey(d.name) === locKey(m.deliveryTo)) ? '' : `<option value="${esc(m.deliveryTo||'')}" selected>${esc(m.deliveryTo||'— choose —')}</option>`}${S.deliveryLocations.map(d => `<option value="${esc(d.name)}" ${locKey(d.name) === locKey(m.deliveryTo) ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></td>
+          <td class="n">${(() => { const pr = priceFor(m.code); return pr ? `<a href="#" onclick="jumpTo('s-prices');return false" class="${pr.price < 0 ? 'neg' : ''}" style="text-decoration:none"><b>${priceText(pr, latestSheet())}</b></a><div class="muted">${esc(pr.purchaser)}</div>` : `<a href="#" class="muted" onclick="jumpTo('s-prices');return false">link a price</a>`; })()}</td>
+          <td>${g === 'crs'
+            ? (S.bays.some(b => b.material===m.code) || S.lots.some(x => x.commodity === m.code && x.status !== 'collected') ? '' : `<button class="small danger" onclick="delCrs(${i})">Delete</button>`)
+            : (S.bays.some(b => b.material===m.code) || S.materials.length<2 ? '' : `<button class="small danger" onclick="delMat(${i})">Delete</button>`)}</td>
+        </tr>`; }).join('');
+}
+function matAddForm(g){
+  const p = g === 'crs' ? 'c' : 'm';
+  return `<div class="row" style="margin-top:6px">
+        <div><label>Code</label><input id="${p}-code" placeholder="${g === 'crs' ? 'e.g. CRS Glass' : 'e.g. PET'}" style="width:${g === 'crs' ? 150 : 110}px"></div>
+        <div><label>Name</label><input id="${p}-name" placeholder="${g === 'crs' ? 'e.g. CRS Glass' : 'e.g. PET Clear'}"></div>
+        <div><label>Avg t / bale</label><input id="${p}-kg" type="number" step="0.005" placeholder="0.450" style="width:120px"></div>
+        <div><label>Target bales</label><input id="${p}-typ" type="number" style="width:110px"></div>
+        <div><label>Delivery location</label><select id="${p}-loc">${g === 'crs' ? '<option value="">— none —</option>' : ''}${S.deliveryLocations.map(d => `<option>${esc(d.name)}</option>`).join('')}</select></div>
+        <div><label>&nbsp;</label><button class="primary" onclick="addMat('${g}')">Add ${g === 'crs' ? 'CRS commodity' : 'MRF material'}</button></div>
+      </div>`;
+}
 function secMaterials(){
+  const head = `<tr><th>Colour</th><th>Code</th><th>Name</th><th class="n">Avg t / bale</th><th class="n">Target bales</th><th class="n">Learned from weigh-outs</th><th>Delivery location</th><th class="n">Price / t</th><th></th></tr>`;
   return `
     <div class="panel" id="s-materials">
       <h2>Materials</h2>
-      <p class="muted">Container estimates use <b>avg tonnes per bale</b>. Once loads are weighed, <b>Learned</b> shows the real average — hit <b>Use</b> to adopt it.
-      <b>Target bales</b> is what each container aims for (a bay can override it). <b>Delivery location</b> decides where bookings go and which weight declaration form is used.</p>
-      <div class="tbl-wrap"><table>
-        <tr><th>Colour</th><th>Code</th><th>Name</th><th class="n">Avg t / bale</th><th class="n">Target bales</th><th class="n">Learned from weigh-outs</th><th>Delivery location</th><th class="n">Price / t</th><th></th></tr>
-        ${S.materials.map((m,i) => { const l = learned(m.code); return `<tr>
-          <td><input type="color" value="${esc(m.color)}" onchange="setMatField(${i},'color',this.value)" style="width:44px;padding:2px"></td>
-          <td><span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span></td>
-          <td><input class="wide" value="${esc(m.name)}" onchange="setMatField(${i},'name',this.value)" style="width:150px"></td>
-          <td class="n"><input type="number" step="0.005" value="${tv(m.baleKg,3)}" onchange="setMatField(${i},'baleKg',this.value)" style="width:90px"></td>
-          <td class="n"><input type="number" value="${m.typical||''}" onchange="setMatField(${i},'typical',this.value)" style="width:80px"></td>
-          <td class="n">${l ? `<b>${bt(l.avg)}</b> <span class="muted">(${l.loads} load${l.loads>1?'s':''})</span> <button class="small" onclick="useLearned(${i})">Use</button>` : '<span class="muted">no weigh-outs yet</span>'}</td>
-          <td><select onchange="setMatField(${i},'deliveryTo',this.value)" style="max-width:220px">${S.deliveryLocations.some(d => locKey(d.name) === locKey(m.deliveryTo)) ? '' : `<option value="${esc(m.deliveryTo||'')}" selected>${esc(m.deliveryTo||'— choose —')}</option>`}${S.deliveryLocations.map(d => `<option value="${esc(d.name)}" ${locKey(d.name) === locKey(m.deliveryTo) ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></td>
-          <td class="n">${(() => { const pr = priceFor(m.code); return pr ? `<a href="#" onclick="jumpTo('s-prices');return false" class="${pr.price < 0 ? 'neg' : ''}" style="text-decoration:none"><b>${priceText(pr, latestSheet())}</b></a><div class="muted">${esc(pr.purchaser)}</div>` : `<a href="#" class="muted" onclick="jumpTo('s-prices');return false">link a price</a>`; })()}</td>
-          <td>${S.bays.some(b => b.material===m.code) || S.materials.length<2 ? '' : `<button class="small danger" onclick="delMat(${i})">Delete</button>`}</td>
-        </tr>`; }).join('')}
-      </table></div>
-      <h3 style="margin-top:18px">Add a material</h3>
-      <div class="row">
-        <div><label>Code</label><input id="m-code" placeholder="e.g. PET" style="width:110px"></div>
-        <div><label>Name</label><input id="m-name" placeholder="e.g. PET Clear"></div>
-        <div><label>Avg t / bale</label><input id="m-kg" type="number" step="0.005" placeholder="0.450" style="width:120px"></div>
-        <div><label>Target bales</label><input id="m-typ" type="number" style="width:110px"></div>
-        <div><label>Delivery location</label><select id="m-loc">${S.deliveryLocations.map(d => `<option>${esc(d.name)}</option>`).join('')}</select></div>
-        <div><label>&nbsp;</label><button class="primary" onclick="addMat()">Add material</button></div>
-      </div>
+      <p class="muted">Container and truck estimates use <b>avg tonnes per bale</b>. Once loads are weighed, <b>Learned</b> shows the real average — hit <b>Use</b> to adopt it.
+      <b>Target bales</b> is what each container aims for (a bay can override it). <b>Delivery location</b> decides where bookings go and which weight declaration form is used.
+      MRF and CRS bales weigh differently, so each has its own averages.</p>
+      <h3 class="mat-grp">MRF</h3>
+      <div class="tbl-wrap"><table>${head}${matRows('mrf')}</table></div>
+      ${matAddForm('mrf')}
+      <h3 class="mat-grp" style="margin-top:26px">CRS</h3>
+      <p class="muted" style="margin-top:0">The commodities CRS lots can be, and what containers of them weigh. "CRS" is added to the front of new ones.</p>
+      <div class="tbl-wrap"><table>${head}${matRows('crs')}</table></div>
+      ${matAddForm('crs')}
     </div>`;
 }
 function secLinfox(){
@@ -1887,14 +1904,14 @@ function secLinfox(){
       <b>Name on booking</b> is used in "48 x MRF <i>Aluminium</i> Bales".</p>
       <div class="tbl-wrap"><table>
         <tr><th>Material</th><th>Order prefix</th><th class="n">Digits</th><th class="n">Last used</th><th>Next booking gets</th><th>Name on booking</th></tr>
-        ${S.materials.map((m,i) => `<tr>
+        ${[['mrf', S.materials], ['crs', S.crsMaterials]].map(([g, list]) => list.map((m,i) => { const G = g === 'crs' ? ",'crs'" : ''; return `<tr>
           <td><span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span></td>
-          <td><input class="wide" value="${esc(m.orderPrefix||'')}" placeholder="e.g. CRCMRF-STL" onchange="setMatField(${i},'orderPrefix',this.value)" style="font-family:ui-monospace,Consolas,monospace"></td>
-          <td class="n"><input type="number" min="1" max="8" value="${m.orderDigits||3}" onchange="setMatField(${i},'orderDigits',this.value)" style="width:70px"></td>
-          <td class="n"><input type="number" min="0" value="${m.orderLast||0}" onchange="setMatField(${i},'orderLast',this.value)" style="width:90px"></td>
+          <td><input class="wide" value="${esc(m.orderPrefix||'')}" placeholder="e.g. CRCMRF-STL" onchange="setMatField(${i},'orderPrefix',this.value${G})" style="font-family:ui-monospace,Consolas,monospace"></td>
+          <td class="n"><input type="number" min="1" max="8" value="${m.orderDigits||3}" onchange="setMatField(${i},'orderDigits',this.value${G})" style="width:70px"></td>
+          <td class="n"><input type="number" min="0" value="${m.orderLast||0}" onchange="setMatField(${i},'orderLast',this.value${G})" style="width:90px"></td>
           <td>${m.orderPrefix ? `<b style="font-family:ui-monospace,Consolas,monospace">${esc(nextOrderNo(m))}</b>` : '<span class="muted">set a prefix</span>'}</td>
-          <td><input value="${esc(bookName(m))}" onchange="setMatField(${i},'bookName',this.value)" style="width:150px"></td>
-        </tr>`).join('')}
+          <td><input value="${esc(bookName(m))}" onchange="setMatField(${i},'bookName',this.value${G})" style="width:150px"></td>
+        </tr>`; }).join('')).join('')}
       </table></div>
       <h3 style="margin-top:22px">Same on every booking</h3>
       <div class="tbl-wrap"><table>
@@ -1904,8 +1921,8 @@ function secLinfox(){
       </table></div>
     </div>`;
 }
-function setMatField(i, f, v){
-  const m = S.materials[i];
+function setMatField(i, f, v, g){
+  const m = grpList(g)[i];
   if (f==='baleKg'){ const x = toKg(v); if (x==null) return toast('Invalid weight'); m[f] = x; }
   else if (f==='typical' || f==='orderLast' || f==='orderDigits'){ const x = num(v); if (x==null || x<0) return toast('Invalid number'); m[f] = Math.round(x); }
   else if (f==='orderPrefix') m[f] = v.toUpperCase().replace(/\s+/g,'').trim();
@@ -1917,15 +1934,18 @@ function setSetting(k, v){
   S.settings[k] = (k==='quantity' || k==='weightKg') ? (num(v) ?? BOOKING_DEFAULTS[k]) : v;
   save(); toast('Booking details updated');
 }
-function useLearned(i){ const m = S.materials[i], l = learned(m.code); m.baleKg = Math.round(l.avg); save(); render(); toast(`${m.code} now ${bt(m.baleKg)} per bale`); }
-function addMat(){
-  const code = $('#m-code').value.trim().toUpperCase(), kgv = toKg($('#m-kg').value);
+function useLearned(i, g){ const m = grpList(g)[i], l = learned(m.code); m.baleKg = Math.round(l.avg); save(); render(); toast(`${m.code} now ${bt(m.baleKg)} per bale`); }
+function addMat(g){
+  const p = g === 'crs' ? 'c' : 'm', list = grpList(g);
+  let code = $(`#${p}-code`).value.trim();
+  if (g === 'crs'){ if (code && !/^CRS\b/i.test(code)) code = 'CRS ' + code; } else code = code.toUpperCase();
+  const kgv = toKg($(`#${p}-kg`).value);
   if (!code) return toast('Enter a code');
-  if (S.materials.some(m => m.code===code)) return toast('Code already exists');
-  if (kgv==null || kgv<=0) return toast('Enter avg tonnes per bale');
-  const palette = ['#8e44ad','#c0392b','#16a085','#d35400','#2c3e50','#7f8c8d'];
-  S.materials.push({ code, name:$('#m-name').value.trim() || code, baleKg:kgv, typical:num($('#m-typ').value)||0, color:palette[S.materials.length % palette.length], orderPrefix:'', orderDigits:3, orderLast:0, deliveryTo: $('#m-loc')?.value || (S.deliveryLocations[0]?.name || ''), deliveryInstr:'' });
-  save(); render();
+  if ([...S.materials, ...S.crsMaterials].some(m => m.code.toLowerCase() === code.toLowerCase())) return toast('Code already exists');
+  if (g !== 'crs' && (kgv==null || kgv<=0)) return toast('Enter avg tonnes per bale');
+  const palette = g === 'crs' ? ['#0e7490','#7c3aed','#be185d','#15803d','#b45309','#475569'] : ['#8e44ad','#c0392b','#16a085','#d35400','#2c3e50','#7f8c8d'];
+  list.push({ code, name:$(`#${p}-name`).value.trim() || code, baleKg:kgv || 0, typical:num($(`#${p}-typ`).value)||0, color:palette[list.length % palette.length], orderPrefix:'', orderDigits:3, orderLast:0, deliveryTo: $(`#${p}-loc`)?.value ?? (S.deliveryLocations[0]?.name || ''), deliveryInstr:'' });
+  save(); render(); toast(`${code} added`);
 }
 function delMat(i){ if (!confirm(`Delete ${S.materials[i].code}? Reports keep its records.`)) return; S.materials.splice(i,1); save(); render(); }
 
@@ -2394,12 +2414,12 @@ function printPrices(){
 /* =========================================================
    SETUP — all the background data in one place
    ========================================================= */
-const SETUP_SECTIONS = [['s-materials','Materials'],['s-crs','CRS commodities'],['s-locations','Delivery locations'],['s-linfox','Linfox bookings'],
+const SETUP_SECTIONS = [['s-materials','Materials'],['s-locations','Delivery locations'],['s-linfox','Linfox bookings'],
   ['s-tares','Container tares'],['s-register','Container register'],['s-vehicles','Vehicles'],['s-setups','Truck setups'],['s-companies','Companies'],['s-prices','Prices'],['s-backup','Backup']];
 function renderSetup(){
   $('#main').innerHTML = `
     <div class="setup-nav">${SETUP_SECTIONS.map(([id, t]) => `<a href="#" onclick="jumpTo('${id}');return false">${t}</a>`).join('')}</div>
-    ${secMaterials()}${secCrs()}${secLocations()}${secLinfox()}${secContainers()}${secVehicles()}${secSetups()}${secCompanies()}${secPrices()}${secBackup()}`;
+    ${secMaterials()}${secLocations()}${secLinfox()}${secContainers()}${secVehicles()}${secSetups()}${secCompanies()}${secPrices()}${secBackup()}`;
 }
 function jumpTo(id){ const el = document.getElementById(id); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - 120, behavior: 'smooth' }); }
 function secVehicles(){
@@ -2458,14 +2478,6 @@ function secCompanies(){ return `
       <div class="row">${S.companies.length ? S.companies.map(c => `<span class="tag">${esc(c)} <a href="#" onclick="delCompany(${JSON.stringify(c).replace(/"/g,'&quot;')});return false">✕</a></span>`).join('') : '<span class="muted">None yet.</span>'}</div>
       <div class="row" style="margin-top:10px"><input id="co-new" placeholder="Add a company"><button onclick="rememberCompany($('#co-new').value);save();render()">Add</button></div>
     </div>`; }
-function secCrs(){ return `
-    <div class="panel" id="s-crs">
-      <h2>CRS commodities</h2>
-      <p class="muted">The commodities CRS lots can be. "CRS" is added to the front of new ones.</p>
-      <div class="row">${S.crsMaterials.map((m, i) => `<span class="tag"><input type="color" value="${esc(m.color)}" onchange="S.crsMaterials[${i}].color=this.value;save();render()" style="width:22px;height:18px;padding:0;border:0">${esc(m.code)} <a href="#" onclick="delCrs(${i});return false">✕</a></span>`).join('')}</div>
-      <div class="row" style="margin-top:10px"><input id="crs-new" placeholder="e.g. CRS Glass"><button onclick="addCrs()">Add commodity</button></div>
-    </div>`; }
-
 /* =========================================================
    BACKUP
    ========================================================= */
