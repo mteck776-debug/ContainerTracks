@@ -213,7 +213,7 @@
       <button data-v="daysheet" class="on">Day Sheet</button>
       <button data-v="yard">Containers</button>
       <button data-v="lots">CRS Lots</button>
-      <button data-v="history">History</button>
+      <button data-v="history">Reports</button>
       <button data-v="setup">Setup</button>
     </nav>
     <div class="spacer"></div>
@@ -1159,7 +1159,7 @@ function doSwap(){
     if (r.inId === r.c.id) return toast('Incoming container is the same as the outgoing one');
   }
   if (r.outTare == null) return toast(`No tare for ${r.c.id} — add its prefix tare in Setup first`);
-  if (r.weighOut == null && !confirm('No 2nd weigh entered, so there is no actual net weight yet.\n\nComplete the swap anyway? You can add the weigh-out later in History.')) return;
+  if (r.weighOut == null && !confirm('No 2nd weigh entered, so there is no actual net weight yet.\n\nComplete the swap anyway? You can add the weigh-out later in Reports.')) return;
   const now = new Date().toISOString();
   S.history.unshift({
     id: uid(), date: now, bay: r.b.n, rego: r.rego || '', company: r.company || '',
@@ -1178,7 +1178,7 @@ function doSwap(){
   const b = r.b;
   b.containerId = r.inId; b.material = $('#sw-mat').value; b.bales = 0; b.startedAt = null; b.log = []; b.booking = null; b.visit = null;
   save(); closeDlg(); render();
-  toast(r.net != null ? `${r.c.id} out · net ${kg(r.net)}` : `${r.c.id} dispatched — add the weigh-out in History`);
+  toast(r.net != null ? `${r.c.id} out · net ${kg(r.net)}` : `${r.c.id} dispatched — add the weigh-out in Reports`);
 }
 
 /* =========================================================

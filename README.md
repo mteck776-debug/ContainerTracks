@@ -19,13 +19,13 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 | **CRS Lots** | Containers for Change lots (CRS ALI, CRS PET Clear …) by lot number (e.g. `#L51528`), with bales and total weight. Lots move from **On auction** to **Sold – awaiting transport**, then **Transport booked** (company and pickup date), then **Collected**. Sold lots show on the Day Sheet as *awaiting transport* with bale totals per commodity. Booked transport becomes a Day Sheet pickup on its date, and entering the weigh-out there marks the lot collected. |
 | **Truck swap** | Records the 1st weigh (truck in) and 2nd weigh (truck out, loaded) and works out the net weight of material. The empty container takes over the bay. |
 | **Setup** | All the background data on one page, with a jump menu at the top: **Materials** (bale weights, targets, delivery location), **CRS commodities**, **Delivery locations** (add more, set delivery instructions, upload weight declaration forms), **Linfox bookings** (connote sequences, details that go on every booking), **Container tares** by prefix, **Container register**, **Vehicles** (rego, tare, setup), **Truck setups** (max gross, safety buffer), **Companies** and **Backup**. |
-| **History** | Every dispatched load with both weighings, the net weight, tonnes per bale and the difference from the bale estimate. Exports to CSV. |
+| **Reports** | Every dispatched load with both weighings, the net weight, tonnes per bale and the difference from the bale estimate. Exports to CSV. |
 
 ## Target bales
 
 Each material has a default number of bales to aim for per container. You can override it on any bay card by typing into its **Target** box. The **use default** link sets it back to the material's default.
 
-The bay card shows bales / target, a progress bar and how many bales are left to go. The card turns **green** when the target is reached and **amber** when it goes over. The Yard summary counts how many containers are at target, and each dispatched load records its target in History.
+The bay card shows bales / target, a progress bar and how many bales are left to go. The card turns **green** when the target is reached and **amber** when it goes over. The Yard summary counts how many containers are at target, and each dispatched load records its target in Reports.
 
 ## Day sheet: how many bales fit
 
@@ -88,7 +88,7 @@ Example: 38.50 out − 18.60 in + 4.60 empty − 4.60 full = **19.90 t net**.
 - **Save weigh-in, weigh out later:** after the 1st weigh, save it. The bay shows *🚛 rego on site* and its button changes to **Weigh out**. Open it at the 2nd weigh, enter the weight, and click **Complete swap**.
 - While the truck is on site, the app shows an *expected* 2nd weigh based on the bale count, so you can spot anything way off.
 - The bale estimate stays on screen as a cross-check, and each weighed load teaches the app the real tonnes per bale (see Setup).
-- A load completed without a 2nd weigh shows *needs 2nd weigh* in History. Click **Edit** to add it.
+- A load completed without a 2nd weigh shows *needs 2nd weigh* in Reports. Click **Edit** to add it.
 - Each truck's tare (1st weigh − empty tare) is remembered by rego.
 
 ## Data (Firebase)
