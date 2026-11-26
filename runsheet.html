@@ -51,6 +51,7 @@ body.locked .cm:hover{background:#e0f2fe;border-radius:6px}
 @media print{.mk.done .ch,.cm>span b.ring{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 body.locked .cell{cursor:default}
 #sheet input:disabled{color:#000;-webkit-text-fill-color:#000;opacity:1;background:transparent}
+@media print{#sheet{zoom:1!important}}
 #past{background:#fff;border:2px solid #2563eb;border-radius:8px;padding:10px;font-size:13px}
 #past .sm{color:#475569;margin:2px 0 6px}
 #past .pr{display:flex;align-items:center;gap:8px;padding:5px 4px;border-top:1px solid #e2e8f0}
@@ -155,6 +156,7 @@ body.editing .tctl{display:block}
   <label class="btn">MAMS logo<input type="file" id="logo1In" accept="image/*" hidden></label>
   <label class="btn">Containers logo<input type="file" id="logo2In" accept="image/*" hidden></label>
   <span class="sp"></span>
+  <button id="btnFit" title="Shrink the sheet so it fits on the screen without scrolling">Fit to screen</button>
   <button id="btnConfirm" class="confirm" title="Lock the sheet, then tap letters and commodities as they are done">Confirm run sheet</button>
   <button id="btnNew">New day</button>
   <button id="btnPrint" class="print">Print</button>
@@ -357,7 +359,7 @@ function render(){
   h+='<div class="notes"><b>Notes:</b><textarea id="notes">'+esc(st.notes)+'</textarea></div>';
   $('sheet').innerHTML=h;
   $('dateIn').value=st.date;
-  update();updateHint();renderPast();applyLock();
+  update();updateHint();renderPast();applyLock();fit();
 }
 function update(){
   var tot={A:0,P:0,G:0,B:0,C:0},off=offList(),s,t;
@@ -381,6 +383,7 @@ function update(){
   }
   $('tA').textContent=tot.A;$('tP').textContent=tot.P;$('tG').textContent=tot.G;$('tB').textContent=tot.B;$('tC').textContent=tot.C;
   $('tT').textContent=tot.A+tot.P+tot.G+tot.B+tot.C+(parseInt(st.bins,10)||0);
+  if(typeof fit==='function')setTimeout(fit,0);
   document.querySelectorAll('button.off').forEach(function(b){var on=off.indexOf(+b.dataset.off)>=0;b.classList.toggle('is',on);b.textContent=on?'OFF today':'off today';});
 }
 function applyLock(){
@@ -395,6 +398,21 @@ function applyLock(){
     $('hint').innerHTML='<b>Run sheet confirmed.</b> Tap a letter when it is done to circle it with the time (tap again to undo). The commodity circles itself: for “2 x …” the 2 is circled after the first, the name once both are done. Tapping a commodity circles all its letters. '+n+' done so far. Need to change something? Click <b>Edit run sheet</b>: the circles are kept.';
   }else $('hint').className='noprint';
 }
+/* ----- fit the whole sheet on screen (screen only; printing is always full size) ----- */
+var FIT=true;try{FIT=localStorage.getItem('mams-runsheet-fit')!=='0';}catch(e){}
+function fit(){
+  var sh=$('sheet'),w=$('sheetWrap');if(!sh||!w)return;
+  sh.style.zoom='';$('btnFit').classList.toggle('on',FIT);
+  if(!FIT)return;
+  var top=w.getBoundingClientRect().top+window.scrollY,cs=getComputedStyle(w);
+  var padV=parseFloat(cs.paddingTop)+parseFloat(cs.paddingBottom),padH=parseFloat(cs.paddingLeft)+parseFloat(cs.paddingRight);
+  var availH=window.innerHeight-top-padV-14,availW=w.clientWidth-padH;
+  var z=Math.min(1,availH/sh.offsetHeight,availW/sh.scrollWidth);
+  if(z<1)sh.style.zoom=Math.max(z,0.4);
+}
+window.addEventListener('resize',fit);
+window.addEventListener('beforeprint',function(){$('sheet').style.zoom='';});
+window.addEventListener('afterprint',fit);window.addEventListener('load',fit);
 function updateHint(){
   $('hint').innerHTML=editing
    ?'<b>Edit sites &amp; trucks:</b> rename a site in its name box; ▲ ▼ reorder, ✕ removes. Trucks: type the name, driver and rego in the heading; ◀ ▶ move a truck, ✕ removes it, <b>+ Add truck / driver</b> (under the sheet) adds a column. Click “Edit sites &amp; trucks” again when done.'
@@ -500,6 +518,7 @@ sheet.addEventListener('change',function(e){
 /* ----- toolbar ----- */
 $('dateIn').addEventListener('change',function(){if(this.value){st.date=this.value;save();render();}});
 $('btnEdit').addEventListener('click',function(){editing=!editing;render();});
+$('btnFit').addEventListener('click',function(){FIT=!FIT;try{localStorage.setItem('mams-runsheet-fit',FIT?'1':'0');}catch(e){}fit();});
 $('btnConfirm').addEventListener('click',function(){var c=confW();c.on=!c.on;if(c.on)editing=false;save();render();});
 $('btnPrint').addEventListener('click',function(){if(document.activeElement)document.activeElement.blur();window.print();});
 $('btnLast').addEventListener('click',function(){st.sites.forEach(function(n){if(!(st.comm[n]||'').trim()&&st.lastComm[n])st.comm[n]=st.lastComm[n];});save();render();});
