@@ -1720,11 +1720,11 @@ function mamsPanel(){
   const left = rows.reduce((a, r) => a + r.left, 0), tot = rows.reduce((a, r) => a + r.tot, 0);
   return `<div class="panel mams">
     <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:4px">
-      <h2 style="margin:0">CRS MAMS ${left ? `<span class="pill">${left} of ${tot} to come</span>` : '<span class="pill done">all in ✓</span>'}</h2>
+      <h2 style="margin:0">CRS MAMS ${left ? `<span class="pill">${left} to come</span>` : '<span class="pill done">all in ✓</span>'}</h2>
       <button class="noprint" onclick="document.querySelector('#nav [data-v=runsheet]').click()">Go to Run Sheet</button>
     </div>
     <p class="muted" style="margin:0 0 10px">What is left to come in from MAMS today, from the Run Sheet. Each item drops off as it is circled on the confirmed run sheet.${sm.confirmed ? '' : ' <b>The run sheet hasn\'t been confirmed yet.</b>'}</p>
-    <div class="row">${rows.map(r => `<span class="tag mams-item ${r.left ? '' : 'done'}" style="font-size:15px"><b>${r.left} x ${esc(r.name)}</b>${r.left !== r.tot ? ` <span class="muted">of ${r.tot}</span>` : ''}</span>`).join('')}</div>
+    <div class="row">${rows.map(r => `<span class="tag mams-item ${r.left ? '' : 'done'}" style="font-size:15px"><b>${r.left} x ${esc(r.name)}</b></span>`).join('')}</div>
   </div>`;
 }
 function lotsAwaitingPanel(){
