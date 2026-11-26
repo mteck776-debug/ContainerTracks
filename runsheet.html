@@ -212,6 +212,12 @@ function hasContent(){
 }
 function pruneConfirm(){if(!st.confirm)return;var keep={};keep[st.date]=1;(st.past||[]).forEach(function(e){keep[e.date]=1;});
   Object.keys(st.confirm).forEach(function(d){if(!keep[d])delete st.confirm[d];});}
+/* totals for MRF Life's Day Sheet: every letter on the sheet and how many are circled */
+function summary(){
+  var tot={},done={},M=conf().m||{},s;
+  for(s=0;s<st.sites.length;s++){var rl=rowLetters(s);Object.keys(rl).forEach(function(l){tot[l]=(tot[l]||0)+rl[l].n;done[l]=(done[l]||0)+rl[l].k;});}
+  return {date:st.date,tot:tot,done:done,confirmed:!!conf().on,at:Date.now()};
+}
 /* never let an empty (wiped) sheet replace a saved one */
 function recordPast(){
   if(VIEWING||!hasContent())return;
@@ -220,7 +226,7 @@ function recordPast(){
   p.sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:0;});
   st.past=p.slice(0,PAST_MAX);
 }
-function save(){if(VIEWING||VIEWONLY)return;if(!APPLYING){recordPast();pruneConfirm();}try{localStorage.setItem(LS,JSON.stringify(st));}catch(e){}
+function save(){if(VIEWING||VIEWONLY)return;if(!APPLYING){recordPast();pruneConfirm();try{st.summary=summary();}catch(e){}}try{localStorage.setItem(LS,JSON.stringify(st));}catch(e){}
   /* inside MRF Life: hand every change to the app so it syncs through Firebase */
   if(EMBED&&!APPLYING){PEND=null;try{parent.postMessage({type:'runsheet-save',state:JSON.stringify(st)},location.origin);}catch(e){}}}
 function $(id){return document.getElementById(id);}

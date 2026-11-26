@@ -218,6 +218,8 @@
   .lotno{font:800 15px ui-monospace,Consolas,monospace;letter-spacing:.5px;background:#fff7d6;border:1px solid #ecd27a;border-radius:6px;padding:1px 6px;white-space:nowrap}
   .pill.warn{background:#fff3e0;color:#8a4b08}
   .panel.lot-sold{border-left:6px solid #f0b429}
+  .panel.mams{border-left:6px solid #2563eb}
+  .mams-item.done{opacity:.5;text-decoration:line-through}
   .tag a{color:var(--muted);text-decoration:none}
   @media print{
     header,.actions,nav,.noprint,#toast{display:none !important}
@@ -518,7 +520,7 @@ function render(){
 /* ---------- Run Sheet (runsheet.html in a frame) ----------
    The run sheet keeps working on its own; every change it makes is posted up here,
    stored in S.runsheet and synced like everything else (Firestore settings/runsheet). */
-const RS_VER = '7';   // bump when runsheet.html changes
+const RS_VER = '8';   // bump when runsheet.html changes
 let RS_READY = false, RS_LAST = '', RS_DIRTY = false, _rsT = null;
 function rsFrame(){ return $('#rs-frame'); }
 /* yard screen: everything read-only except bale counts and the Filled button */
@@ -534,6 +536,7 @@ function yardLock(){
     if (el.closest('.daynav')) return;
     if (/window\.print/.test(el.getAttribute('onclick') || '')) return;
     if (/^DAY=/.test(el.getAttribute('onclick') || '')) return;          // links that only open another day
+    const nv = /data-v=(\w+)/.exec(el.getAttribute('onclick') || ''); if (nv && document.querySelector(`#nav [data-v="${nv[1]}"]`)) return;   // Go to … tabs the yard has
     if (view === 'yard' && el.classList.contains('fill')) return;
     el.classList.add('yard-hide');
   });
@@ -1406,6 +1409,7 @@ function renderDaySheet(){
       <p class="muted noprint">Suggested bales = (max gross − tare − ${kg(S.settings.loadBufferKg ?? 500)} buffer) ÷ bale weight. The bale weight comes from previous weighed pickups of that commodity when there are any, otherwise the Materials average. Max gross comes from the truck setup (edit it in Setup). Weighed loads feed the learned bale weights in Setup → Materials.</p>
     </div>
 
+    ${mamsPanel()}
     ${lotsAwaitingPanel()}
     ${toFillPanel()}
 
@@ -1704,6 +1708,25 @@ function addCrs(){
 function delCrs(i){ const m = S.crsMaterials[i]; if (S.lots.some(l => l.commodity === m.code && l.status !== 'collected')) return toast(`${m.code} has open lots`); if (!confirm(`Remove ${m.code}?`)) return; S.crsMaterials.splice(i, 1); save(); render(); }
 
 /* Day Sheet panel: sold lots still waiting for transport */
+/* CRS MAMS: what's still to come in from MAMS today, from the Run Sheet (letters not yet circled) */
+const MAMS_NAMES = { A:'ALUM', P:'PET', G:'GLASS', B:'BULKA BAGS', C:'CAGES' };
+function mamsPanel(){
+  let rs = null; try { rs = JSON.parse(S.runsheet || 'null'); } catch(e) {}
+  const sm = rs && rs.summary;
+  if (!sm || sm.date !== DAY) return '';
+  const order = ['A','P','G','B','C'].concat(Object.keys(sm.tot).filter(l => !MAMS_NAMES[l]));
+  const rows = order.filter(l => sm.tot[l]).map(l => ({ l, name: MAMS_NAMES[l] || l, tot: sm.tot[l], left: Math.max(0, sm.tot[l] - (sm.done[l] || 0)) }));
+  if (!rows.length) return '';
+  const left = rows.reduce((a, r) => a + r.left, 0), tot = rows.reduce((a, r) => a + r.tot, 0);
+  return `<div class="panel mams">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:4px">
+      <h2 style="margin:0">CRS MAMS ${left ? `<span class="pill">${left} of ${tot} to come</span>` : '<span class="pill done">all in ✓</span>'}</h2>
+      <button class="noprint" onclick="document.querySelector('#nav [data-v=runsheet]').click()">Go to Run Sheet</button>
+    </div>
+    <p class="muted" style="margin:0 0 10px">What is left to come in from MAMS today, from the Run Sheet. Each item drops off as it is circled on the confirmed run sheet.${sm.confirmed ? '' : ' <b>The run sheet hasn\'t been confirmed yet.</b>'}</p>
+    <div class="row">${rows.map(r => `<span class="tag mams-item ${r.left ? '' : 'done'}" style="font-size:15px"><b>${r.left} x ${esc(r.name)}</b>${r.left !== r.tot ? ` <span class="muted">of ${r.tot}</span>` : ''}</span>`).join('')}</div>
+  </div>`;
+}
 function lotsAwaitingPanel(){
   const list = S.lots.filter(l => l.status === 'sold');
   if (!list.length) return '';
