@@ -2039,9 +2039,11 @@ const curSheet = () => S.priceSheets.find(s => s.id === PS_ID) || latestSheet();
 const latestSheet = () => [...S.priceSheets].sort((a, b) => (b.year - a.year) || (b.q - a.q))[0];
 /* the current price for a material (from the latest quarter) */
 function priceFor(code){ const sh = latestSheet(); return sh ? sh.rows.find(r => r.material === code) || null : null; }
+/* bracketed figure when council pays freight: a negative price goes further negative by the freight */
+const withFreight = (r, sh) => r.price < 0 ? r.price - (sh.freight ?? 80) : r.price + (sh.freight ?? 80);
 function priceText(r, sh){
   if (r.price == null || r.freight === 'na') return 'N/A';
-  return money(r.price) + (r.freight === 'council' ? ` (${money(r.price + (sh.freight ?? 80))})` : '');
+  return money(r.price) + (r.freight === 'council' ? ` (${money(withFreight(r, sh))})` : '');
 }
 
 function secPrices(){
@@ -2059,7 +2061,7 @@ function secPrices(){
           <button class="primary" onclick="printPrices()">Print</button>
         </div>
       </div>
-      <p class="muted noprint">Click any field on the sheet to change it. Prices are the <b>nett price per tonne after transport</b>. When council pays freight, the price before freight shows in brackets. Link a product to a material to show its price in Materials above.</p>
+      <p class="muted noprint">Click any field on the sheet to change it. Prices are the <b>nett price per tonne after transport</b>. When council pays freight, the bracket adds the freight (or takes it further negative for a negative price). Link a product to a material to show its price in Materials above.</p>
       <div id="price-print">
         <table class="pricesheet">
           <tr class="ps-title"><td colspan="4"><span>MRF Product Prices and Purchasers</span>
@@ -2073,7 +2075,7 @@ function secPrices(){
             <td><input class="ps-in" value="${esc(r.purchaser)}" list="ps-buyers" onchange="psRow('${r.id}','purchaser',this.value)"></td>
             <td class="n ${r.price != null && r.price < 0 && r.freight !== 'na' ? 'ps-neg' : ''}">
               <span class="noprint">${r.freight === 'na' ? '' : '$'}<input class="ps-in n" type="number" step="any" value="${r.price ?? ''}" placeholder="N/A" onchange="psRow('${r.id}','price',this.value)" style="width:90px"></span>
-              <span class="ps-gross noprint">${r.freight === 'council' && r.price != null ? `(${money(r.price + (sh.freight ?? 80))})` : r.freight === 'na' || r.price == null ? 'N/A' : ''}</span>
+              <span class="ps-gross noprint">${r.freight === 'council' && r.price != null ? `(${money(withFreight(r, sh))})` : r.freight === 'na' || r.price == null ? 'N/A' : ''}</span>
               <span class="printonly">${priceText(r, sh)}</span></td>
             <td class="n"><select class="ps-in" onchange="psRow('${r.id}','freight',this.value)">${FREIGHT_OPTS.map(([v, l]) => `<option value="${v}" ${r.freight === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
             <td class="noprint"><select onchange="psRow('${r.id}','material',this.value)"><option value="">—</option>${[...S.materials, ...S.crsMaterials].map(m => `<option ${m.code === r.material ? 'selected' : ''}>${esc(m.code)}</option>`).join('')}</select>
