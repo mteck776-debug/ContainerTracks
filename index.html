@@ -200,6 +200,9 @@
   .ch-lbl{font-size:13px;fill:var(--ink)} .ch-val{font-size:12px;fill:var(--muted);font-variant-numeric:tabular-nums}
   .ch-axis{font-size:11px;fill:var(--muted)} .ch-grid{stroke:#e7eaee;stroke-width:1} .ch-base{stroke:#aab3bd;stroke-width:1}
   .ch-hit:hover rect[fill]:not([fill="transparent"]){opacity:.85}
+  .ch-cross{stroke:#aab3bd;stroke-width:1;stroke-dasharray:3 3;opacity:0} .ch-col:hover .ch-cross{opacity:1}
+  .ch-end{font-size:12px;font-weight:600;fill:var(--ink)}
+  .chart.wide svg polyline, .chart.wide svg circle{pointer-events:none}
   #ch-tip{position:fixed;z-index:60;background:#1c2530;color:#fff;font-size:13px;line-height:1.4;padding:7px 10px;border-radius:8px;pointer-events:none;display:none;box-shadow:0 6px 18px rgba(0,0,0,.25)}
   .setup-nav{position:sticky;top:56px;z-index:4;display:flex;flex-wrap:wrap;gap:6px;background:var(--bg);padding:8px 0 10px;margin-bottom:6px}
   .setup-nav a{background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 12px;color:var(--ink);text-decoration:none;font-size:14px;box-shadow:var(--shadow)}
@@ -1945,20 +1948,35 @@ function timeChart(rows, m){
   rows.forEach(r => { if (!order.includes(r.material)) order.push(r.material); });
   const B = keys.map(k => { const parts = {}; rows.filter(r => keyOf(r.day) === k).forEach(r => parts[r.material] = (parts[r.material] || 0) + chVal(r, m));
     return { k, parts, total: Object.values(parts).reduce((a, b) => a + b, 0) }; });
-  const W = 1120, H = 260, L = 56, R = 10, T = 10, Bt = 30, max = niceMax(Math.max(...B.map(b => b.total), 0));
-  const plotW = W - L - R, plotH = H - T - Bt, slot = plotW / B.length, bw = Math.max(3, Math.min(48, slot * 0.7));
-  const y = v => T + plotH - plotH * v / max, every = Math.ceil(B.length / 14);
+  /* one line per commodity (not stacked) */
+  const W = 1120, H = 260, L = 56, R = order.length <= 4 ? 70 : 14, T = 12, Bt = 30;
+  const max = niceMax(Math.max(0, ...B.flatMap(b => order.map(c => b.parts[c] || 0))));
+  const plotW = W - L - R, plotH = H - T - Bt, slot = plotW / B.length;
+  const y = v => T + plotH - plotH * v / max, xOf = i => L + slot * i + slot / 2, every = Math.ceil(B.length / 14);
   const grid = [0, .25, .5, .75, 1].map(f => `<line x1="${L}" x2="${W - R}" y1="${y(max * f)}" y2="${y(max * f)}" class="ch-grid"/>
       <text x="${L - 6}" y="${y(max * f) + 4}" text-anchor="end" class="ch-axis">${chAxis(max * f, m)}</text>`).join('');
-  const cols = B.map((b, i) => { const cx = L + slot * i + slot / 2; let acc = 0;
-    const segs = order.filter(c => b.parts[c]).map(c => { const v = b.parts[c], y0 = y(acc), y1 = y(acc + v); acc += v;
-      return `<rect x="${cx - bw / 2}" y="${y1}" width="${bw}" height="${Math.max(0, y0 - y1)}" fill="${esc(anyMat(c).color)}" stroke="#fff" stroke-width="1"/>`; }).join('');
-    const tip = `<b>${labelOf(b.k)}${unit === 'week' ? ' (week)' : ''}</b><br>${b.total ? order.filter(c => b.parts[c]).map(c => `${c}: ${chFmt(b.parts[c], m)}`).join('<br>') + `<br><b>Total ${chFmt(b.total, m)}</b>` : 'Nothing'}`;
-    return `<g class="ch-hit" data-tip="${esc(tip)}"><rect x="${L + slot * i}" y="${T}" width="${slot}" height="${plotH}" fill="transparent"/>${segs}
+  const lines = order.map(c => { const col = esc(anyMat(c).color), pts = B.map((b, i) => [xOf(i), y(b.parts[c] || 0)]);
+    const lastPt = pts[pts.length - 1];
+    return `<polyline points="${pts.map(p => p.join(',')).join(' ')}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${B.length <= 40 ? pts.map(([px, py], i) => B[i].parts[c] ? `<circle cx="${px}" cy="${py}" r="4" fill="${col}" stroke="#fff" stroke-width="2"/>` : '').join('') : ''}
+`; }).join('');
+  /* end-of-line labels (up to 4 series), nudged apart so they never overlap */
+  let ends = '';
+  if (order.length <= 4){
+    const lab = order.map(c => ({ c, y: y(B[B.length - 1].parts[c] || 0) + 4 })).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < lab.length; i++) if (lab[i].y - lab[i - 1].y < 14) lab[i].y = lab[i - 1].y + 14;
+    const over = lab.length ? lab[lab.length - 1].y - (T + plotH + 4) : 0;
+    if (over > 0) lab.forEach(l => l.y -= over);
+    ends = lab.map(l => `<text x="${xOf(B.length - 1) + 10}" y="${l.y}" class="ch-end">${esc(l.c)}</text>`).join('');
+  }
+  const hits = B.map((b, i) => { const cx = xOf(i);
+    const tip = `<b>${labelOf(b.k)}${unit === 'week' ? ' (week)' : unit === 'month' ? '' : ''}</b><br>${b.total ? order.filter(c => b.parts[c]).map(c => `<span style="color:${esc(anyMat(c).color)}">●</span> ${c}: ${chFmt(b.parts[c], m)}`).join('<br>') + (order.length > 1 ? `<br><b>Total ${chFmt(b.total, m)}</b>` : '') : 'Nothing'}`;
+    return `<g class="ch-hit ch-col" data-tip="${esc(tip)}"><rect x="${L + slot * i}" y="${T}" width="${slot}" height="${plotH}" fill="transparent"/>
+      <line x1="${cx}" x2="${cx}" y1="${T}" y2="${T + plotH}" class="ch-cross"/>
       ${i % every === 0 ? `<text x="${cx}" y="${H - 10}" text-anchor="middle" class="ch-axis">${labelOf(b.k)}</text>` : ''}</g>`; }).join('');
   const legend = order.length > 1 ? `<div class="ch-legend">${order.map(c => `<span><i style="background:${esc(anyMat(c).color)}"></i>${esc(c)}</span>`).join('')}</div>` : '';
-  return `<div class="chart wide"><div class="ch-title">${CH_MEASURES.find(x => x[0] === m)[1]} by ${unit}${order.length > 1 ? ', by material' : ` — ${esc(order[0] || '')}`}</div>${legend}
-    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Over time">${grid}<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" class="ch-base"/>${cols}</svg></div>`;
+  return `<div class="chart wide"><div class="ch-title">${CH_MEASURES.find(x => x[0] === m)[1]} by ${unit}${order.length > 1 ? ', each material' : ` — ${esc(order[0] || '')}`}</div>${legend}
+    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Over time">${grid}<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" class="ch-base"/>${hits}${lines}${ends}</svg></div>`;
 }
 
 function chartsPanel(rows){
