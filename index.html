@@ -127,6 +127,9 @@
   .predict{font-size:30px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums}
   .note{background:#fff7e6;border:1px solid #f2d39b;color:#7a5410;border-radius:8px;padding:8px 10px;font-size:13px;margin-top:8px}
   .hidden{display:none !important}
+  #rs-wrap{height:calc(100vh - var(--hdr, 60px))}
+  #rs-frame{display:block;width:100%;height:100%;border:0;background:#fff}
+  @media print{ body.rs-on header{display:none} }
 
   /* cloud sync */
   #sync{display:flex;align-items:center;gap:6px;font-size:13px;color:#c9d2dc}
@@ -225,6 +228,7 @@
     <div class="brand"><img src="favicon.svg" alt="" width="34" height="34">MRF Life</div>
     <nav id="nav">
       <button data-v="daysheet" class="on">Day Sheet</button>
+      <button data-v="runsheet">Run Sheet</button>
       <button data-v="yard">Containers</button>
       <button data-v="lots">CRS Lots</button>
       <button data-v="history">Reports</button>
@@ -237,6 +241,7 @@
   </div>
 </header>
 <main id="main"></main>
+<div id="rs-wrap" class="hidden"><iframe id="rs-frame" title="Daily Run Sheet"></iframe></div>
 
 <dialog id="dlg">
   <div class="dlg-h"><h2 id="dlg-title"></h2><button type="button" onclick="closeDlg()">✕</button></div>
@@ -328,6 +333,7 @@ function migrate(st){
   st.settings = Object.assign({}, BOOKING_DEFAULTS, st.settings || {});
   st.loads = st.loads || []; st.companies = st.companies || []; st.forms = st.forms || {};
   st.lots = st.lots || []; st.reports = st.reports || [];
+  if (typeof st.runsheet !== 'string') st.runsheet = '';
   if (!st.priceSheets || !st.priceSheets.length) st.priceSheets = [DEFAULT_PRICES()];
   if (!st.deliveryLocations || !st.deliveryLocations.length){   // first run: take them from the materials
     const seen = {};
@@ -494,10 +500,57 @@ $('#nav').addEventListener('click', e => {
   scrollTo(0, 0); render();
 });
 function render(){
+  const rs = view === 'runsheet';
+  $('#main').classList.toggle('hidden', rs); $('#rs-wrap').classList.toggle('hidden', !rs);
+  document.body.classList.toggle('rs-on', rs);
+  rsPost(true);
+  if (rs){ rsShow(); saveUI(); return; }
   ({ yard:renderYard, daysheet:renderDaySheet, lots:renderLots, history:renderHistory, setup:renderSetup })[view]();
   if (PENDING_SCROLL != null){ const y = PENDING_SCROLL; PENDING_SCROLL = null; requestAnimationFrame(() => scrollTo(0, y)); }
   else saveUI();
 }
+
+/* ---------- Run Sheet (runsheet.html in a frame) ----------
+   The run sheet keeps working on its own; every change it makes is posted up here,
+   stored in S.runsheet and synced like everything else (Firestore settings/runsheet). */
+let RS_READY = false, RS_LAST = '', RS_DIRTY = false, _rsT = null;
+function rsFrame(){ return $('#rs-frame'); }
+function rsShow(){
+  document.documentElement.style.setProperty('--hdr', document.querySelector('header').offsetHeight + 'px');
+  const f = rsFrame(); if (!f.getAttribute('src')) f.setAttribute('src', 'runsheet.html');
+}
+/* send the shared copy down to the frame (soft = wait if they are typing in it) */
+function rsPost(soft){
+  if (RS_READY && S && !S.runsheet && RS_LAST && (!CLOUD || CLOUD.loaded)){ S.runsheet = RS_LAST; save(); return; }  // nothing shared yet: adopt this device's sheet
+  if (!RS_READY || !S || !S.runsheet || S.runsheet === RS_LAST) return;
+  RS_LAST = S.runsheet;
+  rsFrame().contentWindow.postMessage({ type:'runsheet-load', state: S.runsheet, soft: !!soft }, location.origin);
+}
+addEventListener('message', ev => {
+  const f = rsFrame();
+  if (ev.origin !== location.origin || !f || ev.source !== f.contentWindow) return;
+  const m = ev.data || {};
+  if (m.type === 'runsheet-ready'){
+    RS_READY = true; RS_LAST = m.state;
+    if (!S) return;
+    if (S.runsheet && S.runsheet !== m.state){ RS_LAST = ''; rsPost(); }   // shared copy wins
+    else if (!S.runsheet && (!CLOUD || CLOUD.loaded)){ S.runsheet = m.state; save(); }  // first time: adopt this device's sheet
+  }
+  if (m.type === 'runsheet-save'){
+    RS_LAST = m.state;
+    if (!S || (CLOUD && !CLOUD.loaded) || S.runsheet === m.state) return;
+    S.runsheet = m.state;
+    RS_DIRTY = true; clearTimeout(_rsT);
+    _rsT = setTimeout(() => { save(); RS_DIRTY = false; }, 600);    // typing → one write, not one per key
+  }
+});
+/* Ctrl+P on the Run Sheet tab prints the sheet, not the app */
+addEventListener('keydown', e => {
+  if (view === 'runsheet' && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p'){
+    e.preventDefault(); try { rsFrame().contentWindow.print(); } catch(_){}
+  }
+});
+addEventListener('resize', () => { if (view === 'runsheet') rsShow(); });
 
 /* ---------- remember where you were (this device only) ----------
    Tab, scroll position, Day Sheet date (same day only), History view and price-sheet quarter. */
@@ -2437,6 +2490,7 @@ function toDocs(st){
   out.settings.set('locations', { list: st.deliveryLocations || [] });
   out.settings.set('reports', { list: st.reports || [] });
   out.settings.set('prices', { sheets: st.priceSheets || [] });
+  if (st.runsheet) out.settings.set('runsheet', { state: st.runsheet });
   (st.loads||[]).forEach(l => out.loads.set(l.id, l));
   return out;
 }
@@ -2459,6 +2513,7 @@ function fromRemote(){
   s.reports = sdoc('reports')?.list || [];
   const ps = sdoc('prices')?.sheets; if (ps && ps.length) s.priceSheets = ps;
   const locs = sdoc('locations')?.list; if (locs && locs.length) s.deliveryLocations = locs;
+  s.runsheet = (RS_DIRTY && S && S.runsheet) || sdoc('runsheet')?.state || (S && S.runsheet) || '';   // unsaved typing wins
   const crs = sdoc('crs');
   if (crs){ s.lots = crs.lots || []; if (crs.materials?.length) s.crsMaterials = crs.materials; }
   const fd = sdoc('forms') || {};
@@ -2520,7 +2575,7 @@ function startListeners(){
   setSync('busy', 'Loading…');
   const tryLoad = () => {
     if (ready.size < COLS.length) return;
-    if (CLOUD.loaded){ S = fromRemote(); autoSnapshot(); scheduleRender(); syncStatus(); return; }
+    if (CLOUD.loaded){ S = fromRemote(); autoSnapshot(); scheduleRender(); rsPost(true); syncStatus(); return; }
     const anyData = COLS.some(c => CLOUD.remote[c].size > 0);
     const confirmed = COLS.every(c => server.has(c) || CLOUD.blocked.has(c));
     /* Only treat the database as brand new once the SERVER says it's empty.
