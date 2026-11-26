@@ -151,6 +151,33 @@
   .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;background:#e7eaee;color:#4a5563}
   .pill.in{background:#fff3e0;color:#8a4b08} .pill.done{background:#e9f7ef;color:var(--good)}
   .tag{display:inline-flex;gap:6px;align-items:center;background:#eef1f4;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:13px}
+  table.pricesheet{width:100%;border-collapse:collapse;font-family:Calibri,'Segoe UI',system-ui,sans-serif;font-size:17px;border:2px solid #222}
+  table.pricesheet td{border-bottom:2px dashed #b9b9c6;padding:5px 8px;white-space:nowrap}
+  table.pricesheet td + td{border-left:2px dashed #b9b9c6}
+  .pricesheet .ps-title td{font-size:26px;font-weight:700;border-bottom:3px double #222;padding:8px 10px}
+  .pricesheet .ps-title td span{vertical-align:middle}
+  .pricesheet .ps-q{float:right;font-size:22px}
+  .pricesheet .ps-head td{background:#5b4ea8;color:#fff;font-weight:700;font-size:18px;vertical-align:bottom;padding-top:14px}
+  .pricesheet .ps-head td.noprint{background:#eef1f4;color:var(--muted);font-size:12px;text-transform:uppercase}
+  .pricesheet .ps-in{border:1px solid transparent;background:transparent;font:inherit;color:inherit;padding:2px 4px;width:100%}
+  .pricesheet .ps-in:hover{border-color:var(--line);background:#fff}
+  .pricesheet select.ps-in{width:auto;cursor:pointer;text-align:right}
+  .pricesheet .ps-q select.ps-in{font-weight:700}
+  .pricesheet .ps-head .ps-in{color:#fff;font-weight:700}
+  .pricesheet .ps-head .ps-in:hover{color:var(--ink)}
+  .pricesheet input.n{text-align:right}
+  .pricesheet .ps-neg, .pricesheet .ps-neg input{color:#d62020}
+  .pricesheet .ps-gross{color:var(--muted);margin-left:4px}
+  .printonly{display:none}
+  @media print{
+    .printonly{display:inline}
+    body.print-prices main > *{display:none !important}
+    body.print-prices main > #s-prices-wrap, body.print-prices #s-prices{display:block !important}
+    body.print-prices #s-prices > *:not(#price-print){display:none !important}
+    body.print-prices .pricesheet select{-webkit-appearance:none;appearance:none;border:0;padding:0}
+    body.print-prices .pricesheet .ps-head td{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body.print-prices .setup-nav{display:none !important}
+  }
   .hrow, .row > .hrow{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px;align-items:center}
   .fchip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 11px;font-size:13px;background:#fff}
   .fchip i{width:9px;height:9px;border-radius:50%;background:var(--mc)}
@@ -287,6 +314,7 @@ function migrate(st){
   st.settings = Object.assign({}, BOOKING_DEFAULTS, st.settings || {});
   st.loads = st.loads || []; st.companies = st.companies || []; st.forms = st.forms || {};
   st.lots = st.lots || []; st.reports = st.reports || [];
+  if (!st.priceSheets || !st.priceSheets.length) st.priceSheets = [DEFAULT_PRICES()];
   if (!st.deliveryLocations || !st.deliveryLocations.length){   // first run: take them from the materials
     const seen = {};
     st.materials.forEach(m => { const k = locKey(m.deliveryTo); if (k && !seen[k]) seen[k] = { name: m.deliveryTo, instr: m.deliveryInstr || '' }; });
@@ -1666,7 +1694,7 @@ function secMaterials(){
       <p class="muted">Container estimates use <b>avg tonnes per bale</b>. Once loads are weighed, <b>Learned</b> shows the real average — hit <b>Use</b> to adopt it.
       <b>Target bales</b> is what each container aims for (a bay can override it). <b>Delivery location</b> decides where bookings go and which weight declaration form is used.</p>
       <div class="tbl-wrap"><table>
-        <tr><th>Colour</th><th>Code</th><th>Name</th><th class="n">Avg t / bale</th><th class="n">Target bales</th><th class="n">Learned from weigh-outs</th><th>Delivery location</th><th></th></tr>
+        <tr><th>Colour</th><th>Code</th><th>Name</th><th class="n">Avg t / bale</th><th class="n">Target bales</th><th class="n">Learned from weigh-outs</th><th>Delivery location</th><th class="n">Price / t</th><th></th></tr>
         ${S.materials.map((m,i) => { const l = learned(m.code); return `<tr>
           <td><input type="color" value="${esc(m.color)}" onchange="setMatField(${i},'color',this.value)" style="width:44px;padding:2px"></td>
           <td><span class="chip" style="--mc:${esc(m.color)}">${esc(m.code)}</span></td>
@@ -1675,6 +1703,7 @@ function secMaterials(){
           <td class="n"><input type="number" value="${m.typical||''}" onchange="setMatField(${i},'typical',this.value)" style="width:80px"></td>
           <td class="n">${l ? `<b>${bt(l.avg)}</b> <span class="muted">(${l.loads} load${l.loads>1?'s':''})</span> <button class="small" onclick="useLearned(${i})">Use</button>` : '<span class="muted">no weigh-outs yet</span>'}</td>
           <td><select onchange="setMatField(${i},'deliveryTo',this.value)" style="max-width:220px">${S.deliveryLocations.some(d => locKey(d.name) === locKey(m.deliveryTo)) ? '' : `<option value="${esc(m.deliveryTo||'')}" selected>${esc(m.deliveryTo||'— choose —')}</option>`}${S.deliveryLocations.map(d => `<option value="${esc(d.name)}" ${locKey(d.name) === locKey(m.deliveryTo) ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></td>
+          <td class="n">${(() => { const pr = priceFor(m.code); return pr ? `<a href="#" onclick="jumpTo('s-prices');return false" class="${pr.price < 0 ? 'neg' : ''}" style="text-decoration:none"><b>${priceText(pr, latestSheet())}</b></a><div class="muted">${esc(pr.purchaser)}</div>` : `<a href="#" class="muted" onclick="jumpTo('s-prices');return false">link a price</a>`; })()}</td>
           <td>${S.bays.some(b => b.material===m.code) || S.materials.length<2 ? '' : `<button class="small danger" onclick="delMat(${i})">Delete</button>`}</td>
         </tr>`; }).join('')}
       </table></div>
@@ -1983,14 +2012,125 @@ function exportCSV(){
 
 
 /* =========================================================
+   PRODUCT PRICES & PURCHASERS — quarterly price sheet
+   Nett price is per tonne after transport. When council pays freight the
+   cost before freight (nett + freight, $80 by default) shows in brackets.
+   ========================================================= */
+const QTR = ['Jan - Mar', 'Apr - Jun', 'Jul - Sep', 'Oct - Dec'];
+const qLabel = sh => `${QTR[sh.q - 1]} ${String(sh.year).slice(-2)}`;
+const FREIGHT_OPTS = [['council', 'Council pay Freight'], ['own', 'Own Transport Provided'], ['na', 'N/A']];
+const money = n => (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('en-AU', { maximumFractionDigits: 2 });
+const DEFAULT_PRICES = () => ({ id: 'ps-2026-4', year: 2026, q: 4, freight: 80, rows: [
+  ['Aluminium',      'Genuine Recycling', 2400, 'council', 'ALI'],
+  ['Bumper Bars',    'Kangaroo Plastics', -30,  'council', ''],
+  ['Cardboard Only', 'Genuine Recycling', 38,   'council', 'OCC'],
+  ['Drum Muster',    'No bids',           null, 'na',      ''],
+  ['HDPE Clear',     'Polysearch',        705,  'own',     ''],
+  ['HDPE Colour',    'Genuine Recycling', 120,  'council', 'HDPE C'],
+  ['Mixed Paper',    'Visy',              61,   'council', 'MXP'],
+  ['PET Clear',      'Polysearch',        240,  'own',     ''],
+  ['PET Colour',     'Kangaroo Plastics', -180, 'council', ''],
+  ['PP',             'Kangaroo Plastics', 100,  'council', ''],
+  ['Steel',          'Genuine Recycling', 80,   'council', 'STEEL'],
+].map(([product, purchaser, price, freight, material], i) => ({ id: 'pr' + i, product, purchaser, price, freight, material })) });
+
+let PS_ID = null;                                   // which quarter is open in Setup
+const curSheet = () => S.priceSheets.find(s => s.id === PS_ID) || latestSheet();
+const latestSheet = () => [...S.priceSheets].sort((a, b) => (b.year - a.year) || (b.q - a.q))[0];
+/* the current price for a material (from the latest quarter) */
+function priceFor(code){ const sh = latestSheet(); return sh ? sh.rows.find(r => r.material === code) || null : null; }
+function priceText(r, sh){
+  if (r.price == null || r.freight === 'na') return 'N/A';
+  return money(r.price) + (r.freight === 'council' ? ` (${money(r.price + (sh.freight ?? 80))})` : '');
+}
+
+function secPrices(){
+  const sh = curSheet(); if (!sh) return '';
+  const sheets = [...S.priceSheets].sort((a, b) => (b.year - a.year) || (b.q - a.q));
+  const years = []; for (let y = new Date().getFullYear() - 2; y <= new Date().getFullYear() + 2; y++) years.push(y);
+  return `
+    <div class="panel" id="s-prices">
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px">
+        <h2 style="margin:0">Product prices &amp; purchasers</h2>
+        <div class="hrow noprint">
+          <label style="margin:0">Quarter</label>
+          <select onchange="PS_ID=this.value;render()">${sheets.map(x => `<option value="${x.id}" ${x.id === sh.id ? 'selected' : ''}>${qLabel(x)}${x === sheets[0] ? ' (latest)' : ''}</option>`).join('')}</select>
+          <button onclick="newQuarter()">New quarter…</button>
+          <button class="primary" onclick="printPrices()">Print</button>
+        </div>
+      </div>
+      <p class="muted noprint">Click any field on the sheet to change it. Prices are the <b>nett price per tonne after transport</b>. When council pays freight, the price before freight shows in brackets. Link a product to a material to show its price in Materials above.</p>
+      <div id="price-print">
+        <table class="pricesheet">
+          <tr class="ps-title"><td colspan="4"><span>MRF Product Prices and Purchasers</span>
+            <span class="ps-q"><select class="ps-in" onchange="psSet('q',this.value)">${QTR.map((l, i) => `<option value="${i + 1}" ${sh.q === i + 1 ? 'selected' : ''}>${l}</option>`).join('')}</select>
+            <select class="ps-in" onchange="psSet('year',this.value)">${years.map(y => `<option value="${y}" ${sh.year === y ? 'selected' : ''}>${String(y).slice(-2)}</option>`).join('')}</select></span></td>
+            <td class="noprint"></td></tr>
+          <tr class="ps-head"><td>Product</td><td>Purchaser</td><td class="n">Nett Price per tonne after transport (<span class="ps-fr noprint">$<input class="ps-in" type="number" value="${sh.freight ?? 80}" onchange="psSet('freight',this.value)" style="width:52px" title="Freight cost per tonne"></span><span class="printonly">${money(sh.freight ?? 80)}</span>)</td><td>Comments</td>
+            <td class="noprint">Material</td></tr>
+          ${sh.rows.map(r => `<tr>
+            <td><input class="ps-in" value="${esc(r.product)}" onchange="psRow('${r.id}','product',this.value)"></td>
+            <td><input class="ps-in" value="${esc(r.purchaser)}" list="ps-buyers" onchange="psRow('${r.id}','purchaser',this.value)"></td>
+            <td class="n ${r.price != null && r.price < 0 && r.freight !== 'na' ? 'ps-neg' : ''}">
+              <span class="noprint">${r.freight === 'na' ? '' : '$'}<input class="ps-in n" type="number" step="any" value="${r.price ?? ''}" placeholder="N/A" onchange="psRow('${r.id}','price',this.value)" style="width:90px"></span>
+              <span class="ps-gross noprint">${r.freight === 'council' && r.price != null ? `(${money(r.price + (sh.freight ?? 80))})` : r.freight === 'na' || r.price == null ? 'N/A' : ''}</span>
+              <span class="printonly">${priceText(r, sh)}</span></td>
+            <td class="n"><select class="ps-in" onchange="psRow('${r.id}','freight',this.value)">${FREIGHT_OPTS.map(([v, l]) => `<option value="${v}" ${r.freight === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
+            <td class="noprint"><select onchange="psRow('${r.id}','material',this.value)"><option value="">—</option>${[...S.materials, ...S.crsMaterials].map(m => `<option ${m.code === r.material ? 'selected' : ''}>${esc(m.code)}</option>`).join('')}</select>
+              <button class="small danger" onclick="psDel('${r.id}')" title="Remove product">✕</button></td>
+          </tr>`).join('')}
+        </table>
+      </div>
+      <datalist id="ps-buyers">${[...new Set([...S.priceSheets.flatMap(x => x.rows.map(r => r.purchaser)), ...S.companies])].filter(Boolean).map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+      <div class="row noprint" style="margin-top:10px">
+        <div><label>Add product</label><input id="ps-new" placeholder="e.g. Glass" onkeydown="if(event.key==='Enter')psAdd()"></div>
+        <div><label>&nbsp;</label><button onclick="psAdd()">Add product</button></div>
+        ${S.priceSheets.length > 1 ? `<div><label>&nbsp;</label><button class="danger" onclick="psDelSheet()">Delete ${qLabel(sh)}</button></div>` : ''}
+      </div>
+    </div>`;
+}
+function psSet(k, v){ const sh = curSheet(); sh[k] = k === 'freight' ? (num(v) ?? 80) : +v; save(); render(); }
+function psRow(id, k, v){
+  const r = curSheet().rows.find(x => x.id === id);
+  r[k] = k === 'price' ? (String(v).trim() === '' ? null : num(v)) : String(v).trim();
+  if (k === 'price' && r.price != null && r.freight === 'na') r.freight = 'council';
+  save(); render();
+}
+function psAdd(){
+  const name = $('#ps-new').value.trim(); if (!name) return toast('Enter the product');
+  const sh = curSheet(); sh.rows.push({ id: uid(), product: name, purchaser: '', price: null, freight: 'council', material: '' });
+  sh.rows.sort((a, b) => a.product.localeCompare(b.product)); save(); render();
+}
+function psDel(id){ const sh = curSheet(), r = sh.rows.find(x => x.id === id); if (!confirm(`Remove ${r.product} from ${qLabel(sh)}?`)) return; sh.rows = sh.rows.filter(x => x.id !== id); save(); render(); }
+function psDelSheet(){ const sh = curSheet(); if (!confirm(`Delete the ${qLabel(sh)} price sheet?`)) return; S.priceSheets = S.priceSheets.filter(x => x !== sh); PS_ID = null; save(); render(); }
+function newQuarter(){
+  const last = latestSheet(), nq = last.q === 4 ? 1 : last.q + 1, ny = last.q === 4 ? last.year + 1 : last.year;
+  openDlg('New quarter', `<p>Starts a new price sheet with a copy of the <b>${qLabel(curSheet())}</b> prices, ready to update.</p>
+    <div class="cols"><div><label>Quarter</label><select id="nq-q" style="width:100%">${QTR.map((l, i) => `<option value="${i + 1}" ${nq === i + 1 ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div><label>Year</label><input id="nq-y" type="number" value="${ny}" style="width:100%"></div></div>`,
+    `<button onclick="closeDlg()">Cancel</button><button class="primary" onclick="doNewQuarter()">Create</button>`);
+}
+function doNewQuarter(){
+  const q = +$('#nq-q').value, year = +$('#nq-y').value;
+  if (S.priceSheets.some(x => x.q === q && x.year === year)) return toast('That quarter already exists');
+  const src = curSheet(), sh = { id: uid(), year, q, freight: src.freight ?? 80, rows: src.rows.map(r => Object.assign({}, r, { id: uid() })) };
+  S.priceSheets.push(sh); PS_ID = sh.id; save(); closeDlg(); render(); toast(`${qLabel(sh)} created`);
+}
+function printPrices(){
+  document.body.classList.add('print-prices');
+  const done = () => { document.body.classList.remove('print-prices'); removeEventListener('afterprint', done); };
+  addEventListener('afterprint', done); window.print(); setTimeout(done, 1500);
+}
+
+/* =========================================================
    SETUP — all the background data in one place
    ========================================================= */
 const SETUP_SECTIONS = [['s-materials','Materials'],['s-crs','CRS commodities'],['s-locations','Delivery locations'],['s-linfox','Linfox bookings'],
-  ['s-tares','Container tares'],['s-register','Container register'],['s-vehicles','Vehicles'],['s-setups','Truck setups'],['s-companies','Companies'],['s-backup','Backup']];
+  ['s-tares','Container tares'],['s-register','Container register'],['s-vehicles','Vehicles'],['s-setups','Truck setups'],['s-companies','Companies'],['s-backup','Backup'],['s-prices','Prices']];
 function renderSetup(){
   $('#main').innerHTML = `
     <div class="setup-nav">${SETUP_SECTIONS.map(([id, t]) => `<a href="#" onclick="jumpTo('${id}');return false">${t}</a>`).join('')}</div>
-    ${secMaterials()}${secCrs()}${secLocations()}${secLinfox()}${secContainers()}${secVehicles()}${secSetups()}${secCompanies()}${secBackup()}`;
+    ${secMaterials()}${secCrs()}${secLocations()}${secLinfox()}${secContainers()}${secVehicles()}${secSetups()}${secCompanies()}${secBackup()}${secPrices()}`;
 }
 function jumpTo(id){ const el = document.getElementById(id); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - 120, behavior: 'smooth' }); }
 function secVehicles(){
@@ -2148,6 +2288,7 @@ function toDocs(st){
   out.settings.set('crs', { lots: st.lots || [], materials: st.crsMaterials || [] });
   out.settings.set('locations', { list: st.deliveryLocations || [] });
   out.settings.set('reports', { list: st.reports || [] });
+  out.settings.set('prices', { sheets: st.priceSheets || [] });
   (st.loads||[]).forEach(l => out.loads.set(l.id, l));
   return out;
 }
@@ -2168,6 +2309,7 @@ function fromRemote(){
   const cfgs = sdoc('truckConfigs')?.list; if (cfgs && cfgs.length) s.truckConfigs = cfgs;
   s.loads = vals('loads');
   s.reports = sdoc('reports')?.list || [];
+  const ps = sdoc('prices')?.sheets; if (ps && ps.length) s.priceSheets = ps;
   const locs = sdoc('locations')?.list; if (locs && locs.length) s.deliveryLocations = locs;
   const crs = sdoc('crs');
   if (crs){ s.lots = crs.lots || []; if (crs.materials?.length) s.crsMaterials = crs.materials; }
