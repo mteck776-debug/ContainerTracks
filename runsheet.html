@@ -52,6 +52,11 @@ body.locked .cm:hover{background:#e0f2fe;border-radius:6px}
 body.locked .cell{cursor:default}
 #sheet input:disabled{color:#000;-webkit-text-fill-color:#000;opacity:1;background:transparent}
 @media print{#sheet{zoom:1!important}}
+/* view-only (yard screen): just the sheet */
+body.viewonly #toolbar,body.viewonly #hint,body.viewonly #side,body.viewonly #viewBar,body.viewonly .sctl,body.viewonly .tctl,body.viewonly .addrow,body.viewonly button.off,body.viewonly .ctext,body.viewonly .legend{display:none!important}
+body.viewonly #layout{grid-template-columns:1fr}
+body.viewonly .cell,body.viewonly .cm,body.viewonly .mk{cursor:default!important;outline:none!important;box-shadow:none!important}
+body.viewonly .mk:hover,body.viewonly .cm:hover{background:none!important}
 #past{background:#fff;border:2px solid #2563eb;border-radius:8px;padding:10px;font-size:13px}
 #past .sm{color:#475569;margin:2px 0 6px}
 #past .pr{display:flex;align-items:center;gap:8px;padding:5px 4px;border-top:1px solid #e2e8f0}
@@ -194,7 +199,8 @@ function defaults(){return{
 };}
 function load(){var d=defaults();try{var s=JSON.parse(localStorage.getItem(LS)||'null');if(s){for(var k in s){d[k]=s[k];}}}catch(e){}return d;}
 var st=load();
-var EMBED=window.parent!==window,APPLYING=false;
+var EMBED=window.parent!==window,APPLYING=false,VIEWONLY=/[?&]view=1/.test(location.search);
+if(VIEWONLY)document.body.classList.add('viewonly');
 /* ----- past run sheets: one saved copy per date, the 7 most recent dates ----- */
 var PAST_MAX=7,VIEWING=null;
 var DAYF=['date','sites','trucks','cells','comm','over','off','notes','bins','extra'];
@@ -214,7 +220,7 @@ function recordPast(){
   p.sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:0;});
   st.past=p.slice(0,PAST_MAX);
 }
-function save(){if(VIEWING)return;if(!APPLYING){recordPast();pruneConfirm();}try{localStorage.setItem(LS,JSON.stringify(st));}catch(e){}
+function save(){if(VIEWING||VIEWONLY)return;if(!APPLYING){recordPast();pruneConfirm();}try{localStorage.setItem(LS,JSON.stringify(st));}catch(e){}
   /* inside MRF Life: hand every change to the app so it syncs through Firebase */
   if(EMBED&&!APPLYING){PEND=null;try{parent.postMessage({type:'runsheet-save',state:JSON.stringify(st)},location.origin);}catch(e){}}}
 function $(id){return document.getElementById(id);}
@@ -392,7 +398,8 @@ function applyLock(){
   var b=$('btnConfirm');b.textContent=L?'Edit run sheet':'Confirm run sheet';b.classList.toggle('locked',L);
   b.title=L?'Unlock to make changes. Circled items are kept.':'Lock the sheet, then tap letters and commodities as they are done';
   ['dateIn','btnTom','btnLast','btnEdit','btnNew','btnImp','impText'].forEach(function(id){if($(id))$(id).disabled=L;});
-  document.querySelectorAll('#sheet input,#sheet select').forEach(function(el){el.disabled=L;});
+  document.querySelectorAll('#sheet input,#sheet select').forEach(function(el){el.disabled=L||VIEWONLY;});
+  if(VIEWONLY&&$('notes'))$('notes').readOnly=true;
   if(L){var n=Object.keys(conf().m||{}).length;
     $('hint').className='noprint locked';
     $('hint').innerHTML='<b>Run sheet confirmed.</b> Tap a letter when it is done to circle it with the time (tap again to undo). The commodity circles itself: for “2 x …” the 2 is circled after the first, the name once both are done. Tapping a commodity circles all its letters. '+n+' done so far. Need to change something? Click <b>Edit run sheet</b>: the circles are kept.';
@@ -429,7 +436,9 @@ function setCell(c,o){
 }
 function move(c,ds,dt){var n=document.querySelector('.cell[data-s="'+(+c.dataset.s+ds)+'"][data-t="'+(+c.dataset.t+dt)+'"]');if(n)n.focus();}
 var sheet=$('sheet');
-['click','dblclick','contextmenu','keydown'].forEach(function(ev){sheet.addEventListener(ev,function(e){
+['click','dblclick','contextmenu','keydown','input','change'].forEach(function(ev){sheet.addEventListener(ev,function(e){
+  if(VIEWONLY){e.stopPropagation();if(ev!=='input'&&ev!=='change')e.preventDefault();return;}
+  if(ev==='input'||ev==='change')return;
   if(!locked())return;
   if(ev==='click'){var m=e.target.closest('[data-mk]');
     if(m){var c=confW(),k=m.dataset.mk;if(c.m[k])delete c.m[k];else c.m[k]=Date.now();save();update();applyLock();}

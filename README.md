@@ -22,6 +22,16 @@ It's a single `index.html` file with no install and no server. Open it in a brow
 | **Setup** | All the background data on one page, with a jump menu at the top: **Materials** (bale weights, targets, delivery location), **CRS commodities**, **Delivery locations** (add more, set delivery instructions, upload weight declaration forms), **Linfox bookings** (connote sequences, details that go on every booking), **Container tares** by prefix, **Container register**, **Vehicles** (rego, tare, setup), **Truck setups** (max gross, safety buffer), **Companies** and **Backup**. |
 | **Reports** | Every dispatched load with both weighings, the net weight, tonnes per bale and the difference from the bale estimate. Exports to CSV. |
 
+## Yard screen
+
+Open **`yard.html`** (or `index.html?yard`) on the yard computer or tablet. It has three tabs:
+
+- **Day Sheet**: view only. Change days with ‹ › and print it, but nothing can be added or edited.
+- **Run Sheet**: just the day's run sheet, view only. No toolbar, paste boxes or past sheets.
+- **Containers**: type the bale count or press **Filled**. Everything else (material, target, booking, swap, clear) is hidden.
+
+It uses the same Firebase data, so changes made in the office show up live.
+
 ## Target bales
 
 Each material has a default number of bales to aim for per container. You can override it on any bay card by typing into its **Target** box. The **use default** link sets it back to the material's default.

@@ -130,6 +130,10 @@
   #rs-wrap{height:calc(100vh - var(--hdr, 60px))}
   #rs-frame{display:block;width:100%;height:100%;border:0;background:#fff}
   @media print{ body.rs-on header{display:none} }
+  /* yard screen: view the day sheet and run sheet, fill containers */
+  #yard-tag{font-weight:600;font-size:13px;background:#2563eb;border-radius:999px;padding:2px 10px;margin-left:8px}
+  body.yardmode .yard-hide{display:none !important}
+  body.yardmode #main input:disabled, body.yardmode #main select:disabled, body.yardmode #main textarea:disabled{background:transparent;border-color:transparent;color:inherit;-webkit-text-fill-color:currentColor;opacity:1;appearance:none;-webkit-appearance:none}
 
   /* cloud sync */
   #sync{display:flex;align-items:center;gap:6px;font-size:13px;color:#c9d2dc}
@@ -225,7 +229,7 @@
 <body>
 <header>
   <div class="bar-top">
-    <div class="brand"><img src="favicon.svg" alt="" width="34" height="34">MRF Life</div>
+    <div class="brand"><img src="favicon.svg" alt="" width="34" height="34">MRF Life<span id="yard-tag"></span></div>
     <nav id="nav">
       <button data-v="daysheet" class="on">Day Sheet</button>
       <button data-v="runsheet">Run Sheet</button>
@@ -237,7 +241,7 @@
     <div class="spacer"></div>
     <div id="sync" class="hidden" title="Sync status"><i></i><span></span></div>
     <div id="who" class="hidden"><span></span><button onclick="cloudSignOut()">Sign out</button></div>
-    <button class="primary" onclick="openSwap()">Truck swap</button>
+    <button class="primary" id="btn-swap" onclick="openSwap()">Truck swap</button>
   </div>
 </header>
 <main id="main"></main>
@@ -506,6 +510,7 @@ function render(){
   rsPost(true);
   if (rs){ rsShow(); saveUI(); return; }
   ({ yard:renderYard, daysheet:renderDaySheet, lots:renderLots, history:renderHistory, setup:renderSetup })[view]();
+  if (YARD) yardLock();
   if (PENDING_SCROLL != null){ const y = PENDING_SCROLL; PENDING_SCROLL = null; requestAnimationFrame(() => scrollTo(0, y)); }
   else saveUI();
 }
@@ -513,16 +518,41 @@ function render(){
 /* ---------- Run Sheet (runsheet.html in a frame) ----------
    The run sheet keeps working on its own; every change it makes is posted up here,
    stored in S.runsheet and synced like everything else (Firestore settings/runsheet). */
-const RS_VER = '6';   // bump when runsheet.html changes
+const RS_VER = '7';   // bump when runsheet.html changes
 let RS_READY = false, RS_LAST = '', RS_DIRTY = false, _rsT = null;
 function rsFrame(){ return $('#rs-frame'); }
+/* yard screen: everything read-only except bale counts and the Filled button */
+function yardLock(){
+  const main = $('#main');
+  main.querySelectorAll('.addload').forEach(el => el.remove());
+  main.querySelectorAll('input, select, textarea').forEach(el => {
+    if (el.closest('.daynav')) return;
+    if (view === 'yard' && el.closest('.bales')) return;      // bale count can be typed
+    el.disabled = true;
+  });
+  main.querySelectorAll('button, a[onclick]').forEach(el => {
+    if (el.closest('.daynav')) return;
+    if (/window\.print/.test(el.getAttribute('onclick') || '')) return;
+    if (view === 'yard' && el.classList.contains('fill')) return;
+    el.classList.add('yard-hide');
+  });
+}
+function yardSetup(){
+  document.body.classList.add('yardmode');
+  document.title = 'MRF Life · Yard';
+  $('#yard-tag').textContent = 'Yard';
+  $('#btn-swap').remove();
+  document.querySelectorAll('#nav button').forEach(b => { if (!['daysheet','runsheet','yard'].includes(b.dataset.v)) b.remove(); });
+  /* the shortcuts that open office dialogs */
+  ['openSwap','openBook','openPlace','openClear'].forEach(f => { window[f] = () => {}; });
+}
 function rsShow(){
   document.documentElement.style.setProperty('--hdr', document.querySelector('header').offsetHeight + 'px');
-  const f = rsFrame(); if (!f.getAttribute('src')) f.setAttribute('src', 'runsheet.html?v=' + RS_VER);   // ?v= makes browsers fetch the new version after an update
+  const f = rsFrame(); if (!f.getAttribute('src')) f.setAttribute('src', 'runsheet.html?v=' + RS_VER + (YARD ? '&view=1' : ''));   // ?v= makes browsers fetch the new version after an update
 }
 /* send the shared copy down to the frame (soft = wait if they are typing in it) */
 function rsPost(soft){
-  if (RS_READY && S && !S.runsheet && RS_LAST && (!CLOUD || CLOUD.loaded)){ S.runsheet = RS_LAST; save(); return; }  // nothing shared yet: adopt this device's sheet
+  if (!YARD && RS_READY && S && !S.runsheet && RS_LAST && (!CLOUD || CLOUD.loaded)){ S.runsheet = RS_LAST; save(); return; }  // nothing shared yet: adopt this device's sheet
   if (!RS_READY || !S || !S.runsheet || S.runsheet === RS_LAST) return;
   RS_LAST = S.runsheet;
   rsFrame().contentWindow.postMessage({ type:'runsheet-load', state: S.runsheet, soft: !!soft }, location.origin);
@@ -535,9 +565,10 @@ addEventListener('message', ev => {
     RS_READY = true; RS_LAST = m.state;
     if (!S) return;
     if (S.runsheet && S.runsheet !== m.state){ RS_LAST = ''; rsPost(); }   // shared copy wins
-    else if (!S.runsheet && (!CLOUD || CLOUD.loaded)){ S.runsheet = m.state; save(); }  // first time: adopt this device's sheet
+    else if (!YARD && !S.runsheet && (!CLOUD || CLOUD.loaded)){ S.runsheet = m.state; save(); }  // first time: adopt this device's sheet
   }
   if (m.type === 'runsheet-save'){
+    if (YARD) return;
     RS_LAST = m.state;
     if (!S || (CLOUD && !CLOUD.loaded) || S.runsheet === m.state) return;
     S.runsheet = m.state;
@@ -555,7 +586,9 @@ addEventListener('resize', () => { if (view === 'runsheet') rsShow(); });
 
 /* ---------- remember where you were (this device only) ----------
    Tab, scroll position, Day Sheet date (same day only), History view and price-sheet quarter. */
-const UI_KEY = 'containertracks:ui';
+/* yard screen: index.html?yard (or yard.html) — Day Sheet + Run Sheet to view, Containers to fill */
+const YARD = new URLSearchParams(location.search).has('yard');
+const UI_KEY = YARD ? 'containertracks:ui-yard' : 'containertracks:ui';
 let PENDING_SCROLL = null;
 function saveUI(){
   try { localStorage.setItem(UI_KEY, JSON.stringify({ view, day: DAY, dayOn: ymd(), ps: PS_ID, rpt: RPT_ACTIVE, colsOpen: RPT_COLS_OPEN, lotsShown: LOTS_SHOWN, scroll: Math.round(scrollY) })); } catch(e) {}
@@ -2699,6 +2732,7 @@ async function cloudReset(){
 function cloudSignOut(){ if (confirm('Sign out?')) CLOUD.A.signOut(CLOUD.auth); }
 
 /* ---------- start ---------- */
+if (YARD) yardSetup();
 restoreUI();
 try { localStorage.setItem(SNAP_KEY, JSON.stringify(getSnaps())); } catch(e) {}   // trim old backups to the newest 5
 if (window.FIREBASE_CONFIG){ S = defaults(); $('#main').innerHTML = '<div class="panel">Connecting…</div>'; }
