@@ -1332,6 +1332,15 @@ function loadCalc(l){
   const last = lastPickup(l);
   return { m, cfg, payload, aim, buffer, plan, maxBales, estGross, net, last, perBale: net != null && l.bales ? net / l.bales : null, status };
 }
+/* bales for an upcoming load: sold lot → its bales; otherwise what's entered, else the suggestion */
+function upcomingBales(l){
+  if (l.lotId){ const lot = S.lots.find(x => x.id === l.lotId); return lot && lot.bales != null ? `<b>${lot.bales}</b>` : '—'; }
+  if (l.bales) return `<b>${l.bales}</b>`;
+  const c = loadCalc(l);
+  if (c.maxBales != null) return `${c.maxBales} <span class="muted">suggested</span>`;
+  if (c.last && c.last.bales) return `~${c.last.bales} <span class="muted">last time</span>`;
+  return '—';
+}
 function rememberCompany(name){
   name = String(name||'').trim(); if (!name) return;
   if (!S.companies.some(c => c.toLowerCase() === name.toLowerCase())) S.companies.push(name), S.companies.sort((a,b) => a.localeCompare(b));
@@ -1403,10 +1412,11 @@ function renderDaySheet(){
     <div class="panel noprint">
       <h2>Upcoming loads</h2>
       ${upcoming.length ? `<div class="tbl-wrap"><table>
-        <tr><th>Date</th><th>Company</th><th>Commodity</th><th>Truck</th><th>Notes</th><th></th></tr>
+        <tr><th>Date</th><th>Company</th><th>Commodity</th><th class="n">Bales</th><th>Truck</th><th>Notes</th><th></th></tr>
         ${upcoming.map(l => `<tr>
           <td><a href="#" onclick="DAY='${l.date}';render();return false"><b>${fmtDay(l.date)}</b></a></td>
           <td>${esc(l.company)}</td><td>${l.material ? `<span class="chip" style="--mc:${esc(anyMat(l.material).color)}">${esc(l.material)}</span>` : '—'}</td>
+          <td class="n">${upcomingBales(l)}</td>
           <td>${esc(cfgOf(l.config)?.name || '')}</td><td class="muted">${esc(l.notes||'')}</td>
           <td><button class="small danger" onclick="delLoad('${l.id}')">✕</button></td></tr>`).join('')}
       </table></div>` : '<p class="muted">Nothing planned yet. Pick a future date above and add loads to it.</p>'}
