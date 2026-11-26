@@ -97,6 +97,9 @@ button.off{display:block;width:100%;font-size:10px;padding:1px 0;margin-top:2px;
 button.off.is{background:#475569;color:#fff}
 .addrow{display:none;margin-top:6px}
 body.editing .addrow{display:block}
+.tctl{display:none;margin-top:2px;white-space:nowrap}
+body.editing .tctl{display:block}
+.tctl button{padding:0 5px;font-size:11px;margin:0 1px}
 .notes{margin-top:6px;font-size:11px}
 .notes b{font-size:12px}
 .notes textarea{width:100%;height:66px;border:0;font:inherit;padding:0 3px;line-height:22px;resize:vertical;background:repeating-linear-gradient(transparent 0,transparent 21px,#000 21px,#000 22px)}
@@ -104,7 +107,7 @@ body.editing .addrow{display:block}
 @page{size:A4 portrait;margin:8mm}
 @media print{
  body{background:#fff}
- .noprint,#toolbar,#hint,#shotPane,.sctl,.addrow,button.off,.tag,.legend{display:none!important}
+ .noprint,#toolbar,#hint,#shotPane,.sctl,.tctl,.addrow,button.off,.tag,.legend{display:none!important}
  #layout{display:block;padding:0}
  #sheetWrap{box-shadow:none;padding:0;overflow:visible;border-radius:0}
  #sheet{min-width:0;font-size:10pt}
@@ -129,7 +132,7 @@ body.editing .addrow{display:block}
   <strong>Run Sheet</strong>
   <input type="date" id="dateIn" title="Date"><button id="btnTom" title="Move the date forward to the next weekday">+1 work day</button>
   <button id="btnLast" title="Fill empty commodity boxes with what was used last time for that site">Fill commodities from last time</button>
-  <button id="btnEdit">Edit sites</button>
+  <button id="btnEdit">Edit sites &amp; trucks</button>
   <label class="btn">MAMS logo<input type="file" id="logo1In" accept="image/*" hidden></label>
   <label class="btn">Containers logo<input type="file" id="logo2In" accept="image/*" hidden></label>
   <span class="sp"></span>
@@ -193,6 +196,11 @@ function save(){if(VIEWING)return;if(!APPLYING)recordPast();try{localStorage.set
 function $(id){return document.getElementById(id);}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function key(s,t){return st.sites[s]+'|'+t;}
+/* cells, overrides and 'off today' are stored by truck column number: renumber them when columns move or go */
+function remapT(f){
+  ['cells','over'].forEach(function(m){var o={};Object.keys(st[m]||{}).forEach(function(k){var j=k.lastIndexOf('|'),t=f(+k.slice(j+1));if(t>=0)o[k.slice(0,j+1)+t]=st[m][k];});st[m]=o;});
+  Object.keys(st.off||{}).forEach(function(d){st.off[d]=(st.off[d]||[]).map(f).filter(function(t){return t>=0;});});
+}
 
 /* ----- date ----- */
 function dateObj(){var p=st.date.split('-');return new Date(+p[0],+p[1]-1,+p[2]);}
@@ -283,12 +291,13 @@ function render(){
   h+='<div class="hd"><img class="lg1" src="'+(st.logo1||LOGO1)+'" alt="MAMS Group"><img class="lg2" src="'+(st.logo2||LOGO2)+'" alt="Containers for Change"></div>';
   h+='<div class="dtrow"><span class="wd">'+weekday()+'</span><span class="dt">'+dmy()+'</span></div>';
   h+='<div class="legend">A = Alum &nbsp; P = PET &nbsp; G = Glass &nbsp; B = Bulka bags &nbsp; C = Cages (flatbed 0). Amber cell = a guess, check it. Double-click a cell to type its letters yourself.</div>';
-  h+='<table class="tot">'+colgroup+'<tr><td class="pt" rowspan="2">Product<br>totals</td><td class="lb">Aluminium</td><td class="n" id="tA"></td><td class="lb">PET Clear</td><td class="n" id="tP"></td><td class="lb">Glass</td><td class="n" id="tG"></td></tr>';
+  var totcols=nT===5?colgroup:'<colgroup><col style="width:16%">'+[1,2,3,4,5].map(function(){return'<col style="width:13.6%">';}).join('')+'<col style="width:16%"></colgroup>';
+  h+='<table class="tot">'+totcols+'<tr><td class="pt" rowspan="2">Product<br>totals</td><td class="lb">Aluminium</td><td class="n" id="tA"></td><td class="lb">PET Clear</td><td class="n" id="tP"></td><td class="lb">Glass</td><td class="n" id="tG"></td></tr>';
   h+='<tr><td class="lb">Bulka Bag</td><td class="n" id="tB"></td><td class="lb">Cages</td><td class="n" id="tC"></td><td class="lb">Glass Bins</td><td class="n"><input id="bins" value="'+esc(st.bins)+'"></td></tr>';
   h+='<tr class="ex"><td>Thursday Island:</td><td><input data-ex="a" value="'+esc(st.extra.a)+'"></td><td>Badu Island:</td><td><input data-ex="b" value="'+esc(st.extra.b)+'"></td><td>Normanton:</td><td><input data-ex="c" value="'+esc(st.extra.c)+'"></td><td class="tt" id="tT"></td></tr></table>';
   h+='<table class="grid">'+colgroup+'<thead><tr><th class="site">Site</th>';
   st.trucks.forEach(function(t,i){
-    h+='<th><input class="h-label" data-th="'+i+'" data-f="label" value="'+esc(t.label)+'"><input class="h-driver" data-th="'+i+'" data-f="driver" value="'+esc(t.driver)+'"><input class="h-rego" data-th="'+i+'" data-f="rego" value="'+esc(t.rego)+'"><button class="off noprint" data-off="'+i+'">off today</button></th>';
+    h+='<th><input class="h-label" data-th="'+i+'" data-f="label" value="'+esc(t.label)+'"><input class="h-driver" data-th="'+i+'" data-f="driver" value="'+esc(t.driver)+'"><input class="h-rego" data-th="'+i+'" data-f="rego" value="'+esc(t.rego)+'"><button class="off noprint" data-off="'+i+'">off today</button><div class="tctl"><button data-tact="left" data-t="'+i+'" title="Move left">◀</button><button data-tact="right" data-t="'+i+'" title="Move right">▶</button><button data-tact="del" data-t="'+i+'" title="Remove this truck">✕</button></div></th>';
   });
   h+='<th class="comm">Commodities</th></tr></thead><tbody>';
   st.sites.forEach(function(name,s){
@@ -296,7 +305,7 @@ function render(){
     st.trucks.forEach(function(t,ti){h+='<td><div class="cell" tabindex="0" data-s="'+s+'" data-t="'+ti+'"><span class="tag"></span><div class="lt"></div></div></td>';});
     h+='<td class="comm"><input class="ctext noprint" data-c="'+s+'" placeholder="e.g. ALUM-PET" value="'+esc(st.comm[name]||'')+'"><div class="clines"></div></td></tr>';
   });
-  h+='</tbody></table><div class="addrow noprint"><button id="btnAddSite">+ Add site</button></div>';
+  h+='</tbody></table><div class="addrow noprint"><button id="btnAddSite">+ Add site</button> <button id="btnAddTruck">+ Add truck / driver</button></div>';
   h+='<div class="notes"><b>Notes:</b><textarea id="notes">'+esc(st.notes)+'</textarea></div>';
   $('sheet').innerHTML=h;
   $('dateIn').value=st.date;
@@ -328,7 +337,7 @@ function update(){
 }
 function updateHint(){
   $('hint').innerHTML=editing
-   ?'<b>Edit sites:</b> rename a site in its name box; ▲ ▼ reorder, ✕ removes. Click “Edit sites” again when done.'
+   ?'<b>Edit sites &amp; trucks:</b> rename a site in its name box; ▲ ▼ reorder, ✕ removes. Trucks: type the name, driver and rego in the heading; ◀ ▶ move a truck, ✕ removes it, <b>+ Add truck / driver</b> (under the sheet) adds a column. Click “Edit sites &amp; trucks” again when done.'
    :'<b>Each day:</b> 1) pick the date, 2) set the driver names in the headings from the email, 3) paste the Allotrac page text on the left, 4) check any amber or “?” cells (double-click a cell to type its letters), then Print. Trucks with no jobs are greyed “off”; click <b>off today</b> to change that. You can still click cells to enter X / XX / 0 by hand.';
   $('btnEdit').classList.toggle('on',editing);
   document.body.classList.toggle('editing',editing);
@@ -352,6 +361,17 @@ sheet.addEventListener('click',function(e){
     if(act==='down'&&s<st.sites.length-1){var y=st.sites[s];st.sites[s]=st.sites[s+1];st.sites[s+1]=y;}
     save();render();return;}
   if(e.target.id==='btnAddSite'){st.sites.push('New site');save();render();return;}
+  if(e.target.id==='btnAddTruck'){st.trucks.push({label:'Truck '+(st.trucks.length+1),driver:'',rego:''});save();render();return;}
+  var tb=e.target.closest('button[data-tact]');
+  if(tb){var t=+tb.dataset.t,ta=tb.dataset.tact,n=st.trucks.length;
+    if(ta==='del'){
+      if(n<=1)return;
+      if(!tb.dataset.arm){tb.dataset.arm=1;tb.textContent='sure?';return;}
+      st.trucks.splice(t,1);remapT(function(i){return i===t?-1:i>t?i-1:i;});
+    }
+    if(ta==='left'&&t>0){var a=st.trucks[t];st.trucks[t]=st.trucks[t-1];st.trucks[t-1]=a;remapT(function(i){return i===t?t-1:i===t-1?t:i;});}
+    if(ta==='right'&&t<n-1){var c2=st.trucks[t];st.trucks[t]=st.trucks[t+1];st.trucks[t+1]=c2;remapT(function(i){return i===t?t+1:i===t+1?t:i;});}
+    save();render();return;}
   var c=e.target.closest('.cell');if(!c)return;
   var o=parseCell(st.cells[key(+c.dataset.s,+c.dataset.t)]);
   if(e.shiftKey)o.b=!o.b;else o.x=(o.x+1)%3;
