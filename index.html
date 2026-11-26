@@ -531,7 +531,8 @@ function render(){
 /* ---------- Run Sheet (runsheet.html in a frame) ----------
    The run sheet keeps working on its own; every change it makes is posted up here,
    stored in S.runsheet and synced like everything else (Firestore settings/runsheet). */
-const RS_VER = '9';   // bump when runsheet.html changes
+const RS_VER = '10';   // bump when runsheet.html changes
+let RS_SYNCED = false;   // has the frame been given the shared copy yet?
 let RS_READY = false, RS_LAST = '', RS_DIRTY = false, _rsT = null;
 function rsFrame(){ return $('#rs-frame'); }
 /* yard screen: everything read-only except bale counts and the Filled button */
@@ -567,23 +568,31 @@ function rsShow(){
 }
 /* send the shared copy down to the frame (soft = wait if they are typing in it) */
 function rsPost(soft){
-  if (!YARD && RS_READY && S && !S.runsheet && RS_LAST && (!CLOUD || CLOUD.loaded)){ S.runsheet = RS_LAST; save(); return; }  // nothing shared yet: adopt this device's sheet
-  if (!RS_READY || !S || !S.runsheet || S.runsheet === RS_LAST) return;
+  if (!RS_READY || !S || (CLOUD && !CLOUD.loaded)) return;
+  const w = rsFrame().contentWindow;
+  if (!RS_SYNCED){                       // first hand-over after the frame loads: the shared copy always wins
+    RS_SYNCED = true;
+    if (!S.runsheet){                    // nothing shared yet: this device's sheet becomes the shared one
+      if (!YARD && RS_LAST){ S.runsheet = RS_LAST; save(); }
+      w.postMessage({ type:'runsheet-go' }, location.origin); return;
+    }
+    RS_LAST = S.runsheet;
+    w.postMessage({ type:'runsheet-load', state: S.runsheet, soft: false }, location.origin); return;
+  }
+  if (!S.runsheet || S.runsheet === RS_LAST) return;
   RS_LAST = S.runsheet;
-  rsFrame().contentWindow.postMessage({ type:'runsheet-load', state: S.runsheet, soft: !!soft }, location.origin);
+  w.postMessage({ type:'runsheet-load', state: S.runsheet, soft: !!soft }, location.origin);
 }
 addEventListener('message', ev => {
   const f = rsFrame();
   if (ev.origin !== location.origin || !f || ev.source !== f.contentWindow) return;
   const m = ev.data || {};
   if (m.type === 'runsheet-ready'){
-    RS_READY = true; RS_LAST = m.state;
-    if (!S) return;
-    if (S.runsheet && S.runsheet !== m.state){ RS_LAST = ''; rsPost(); }   // shared copy wins
-    else if (!YARD && !S.runsheet && (!CLOUD || CLOUD.loaded)){ S.runsheet = m.state; save(); }  // first time: adopt this device's sheet
+    RS_READY = true; RS_SYNCED = false; RS_LAST = m.state;
+    rsPost();
   }
   if (m.type === 'runsheet-save'){
-    if (YARD) return;
+    if (YARD || !RS_SYNCED) return;
     RS_LAST = m.state;
     if (!S || (CLOUD && !CLOUD.loaded) || S.runsheet === m.state) return;
     S.runsheet = m.state;
@@ -614,7 +623,6 @@ function restoreUI(){
   if (u.view && document.querySelector(`#nav [data-v="${u.view}"]`)){
     view = u.view; document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('on', x.dataset.v === view));
   }
-  if (u.day && u.dayOn === ymd()) DAY = u.day;         // a new day opens on today
   if (u.ps) PS_ID = u.ps;
   if (u.rpt) RPT_ACTIVE = u.rpt;
   RPT_COLS_OPEN = !!u.colsOpen;
@@ -2607,8 +2615,9 @@ function cloudPush(){
   const L = toDocs(S), R = CLOUD.remote, F = CLOUD.F, ops = [];
   COLS.forEach(c => {
     if (CLOUD.blocked && CLOUD.blocked.has(c)) return;
+    if (YARD && c !== 'bays') return;      // the yard screen only ever saves bale counts
     L[c].forEach((obj, id) => { const j = stable(clean(obj)); if (R[c].get(id) !== j) ops.push(['set', c, id, j]); });
-    R[c].forEach((_, id) => { if (!L[c].has(id)) ops.push(['del', c, id]); });
+    if (!YARD) R[c].forEach((_, id) => { if (!L[c].has(id)) ops.push(['del', c, id]); });
   });
   for (let i = 0; i < ops.length; i += 400){
     const batch = F.writeBatch(CLOUD.db);
