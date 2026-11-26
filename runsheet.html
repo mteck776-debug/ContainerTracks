@@ -41,10 +41,14 @@ button{font:inherit;cursor:pointer}
 .mk{cursor:default}
 body.locked .mk{cursor:pointer}
 body.locked .mk:hover{background:#e0f2fe;border-radius:999px}
-.mk.done .ch{border:2px solid #000;border-radius:50%;min-width:1.35em;height:1.35em;display:inline-flex;align-items:center;justify-content:center;line-height:1}
-.mk .ts{font-size:8px;font-weight:600;line-height:1;color:#000;font-style:normal}
-.clines .mk{display:flex;flex-direction:column;align-items:center}
-.clines .mk.done .ch{border-radius:999px;min-width:0;width:auto;height:auto;padding:0 6px}
+.mk.done .ch{border:2px solid #2563eb;border-radius:50%;min-width:1.35em;height:1.35em;display:inline-flex;align-items:center;justify-content:center;line-height:1}
+.mk .ts,.cm .ts{font-size:8px;font-weight:700;line-height:1;color:#2563eb;font-style:normal}
+.cm{display:flex;flex-direction:column;align-items:center}
+.cm>span b{display:inline-block;border:2px solid transparent;border-radius:999px;padding:0 4px;line-height:1.15}
+.cm>span b.ring{border-color:#2563eb}
+body.locked .cm{cursor:pointer}
+body.locked .cm:hover{background:#e0f2fe;border-radius:6px}
+@media print{.mk.done .ch,.cm>span b.ring{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 body.locked .cell{cursor:default}
 #sheet input:disabled{color:#000;-webkit-text-fill-color:#000;opacity:1;background:transparent}
 #past{background:#fff;border:2px solid #2563eb;border-radius:8px;padding:10px;font-size:13px}
@@ -221,6 +225,21 @@ function locked(){return !!conf().on;}
 function hm(ms){var d=new Date(ms);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
 function mkHtml(k,txt,tag){var t=(conf().m||{})[k];
   return '<'+tag+' class="mk'+(t?' done':'')+'" data-mk="'+esc(k)+'"><b class="ch">'+esc(txt)+'</b>'+(t?'<i class="ts">'+hm(t)+'</i>':'')+'</'+tag+'>';}
+/* letters in a site's row: per letter how many there are, how many are circled, the latest time */
+function rowLetters(s,res){
+  res=res||computeSite(s);var M=conf().m||{},out={};
+  res.forEach(function(r,t){var cnt={};r.letters.forEach(function(l){
+    var n=cnt[l]=(cnt[l]||0)+1,k='L|'+st.sites[s]+'|'+t+'|'+l+'#'+n,o=out[l]=out[l]||{n:0,k:0,last:0,keys:[]};
+    o.n++;o.keys.push(k);if(M[k]){o.k++;if(M[k]>o.last)o.last=M[k];}});});
+  return out;
+}
+/* commodity line follows its letters: "2 x ALUM" -> the 2 is circled once one A is done, the name once all are */
+function commHtml(line,rl,s){
+  var m=/^(\d+) x (.+)$/.exec(line),num=m?m[1]:'',name=m?m[2]:line,L=LET[name],o=L&&rl[L];
+  var part=!!(o&&o.k>0),full=!!(o&&o.n>0&&o.k>=o.n);
+  return '<div class="cm"'+(L?' data-cm="'+s+'|'+L+'"':'')+'><span>'+(num?'<b'+(part?' class="ring"':'')+'>'+num+'</b> x ':'')+
+    '<b'+(full?' class="ring"':'')+'>'+esc(name)+'</b></span>'+(full?'<i class="ts">'+hm(o.last)+'</i>':'')+'</div>';
+}
 /* cells, overrides and 'off today' are stored by truck column number: renumber them when columns move or go */
 function remapT(f){
   ['cells','over'].forEach(function(m){var o={};Object.keys(st[m]||{}).forEach(function(k){var j=k.lastIndexOf('|'),t=f(+k.slice(j+1));if(t>=0)o[k.slice(0,j+1)+t]=st[m][k];});st[m]=o;});
@@ -355,7 +374,7 @@ function update(){
     }
     var txt=(st.comm[st.sites[s]]||'').trim();
     var lines=commLines(st.comm[st.sites[s]]),d=row.querySelector('.clines');
-    var cseen={};d.innerHTML=lines.map(function(l){var n=cseen[l]=(cseen[l]||0)+1;return mkHtml('C|'+st.sites[s]+'|'+l+'#'+n,l,'div');}).join('');
+    var rl=rowLetters(s,res);d.innerHTML=lines.map(function(l){return commHtml(l,rl,s);}).join('');
     d.className='clines'+(lines.length<2?' one':'');
     row.classList.toggle('empty',!has&&!txt);
     row.querySelector('td.comm').classList.toggle('warn',!has&&!!txt);
@@ -373,7 +392,7 @@ function applyLock(){
   document.querySelectorAll('#sheet input,#sheet select').forEach(function(el){el.disabled=L;});
   if(L){var n=Object.keys(conf().m||{}).length;
     $('hint').className='noprint locked';
-    $('hint').innerHTML='<b>Run sheet confirmed.</b> Tap a letter or commodity when it is done to circle it with the time (tap again to undo). '+n+' done so far. Need to change something? Click <b>Edit run sheet</b>: the circles are kept.';
+    $('hint').innerHTML='<b>Run sheet confirmed.</b> Tap a letter when it is done to circle it with the time (tap again to undo). The commodity circles itself: for “2 x …” the 2 is circled after the first, the name once both are done. Tapping a commodity circles all its letters. '+n+' done so far. Need to change something? Click <b>Edit run sheet</b>: the circles are kept.';
   }else $('hint').className='noprint';
 }
 function updateHint(){
@@ -395,7 +414,13 @@ var sheet=$('sheet');
 ['click','dblclick','contextmenu','keydown'].forEach(function(ev){sheet.addEventListener(ev,function(e){
   if(!locked())return;
   if(ev==='click'){var m=e.target.closest('[data-mk]');
-    if(m){var c=confW(),k=m.dataset.mk;if(c.m[k])delete c.m[k];else c.m[k]=Date.now();save();update();applyLock();}}
+    if(m){var c=confW(),k=m.dataset.mk;if(c.m[k])delete c.m[k];else c.m[k]=Date.now();save();update();applyLock();}
+    /* tapping a commodity circles all its letters in that row (tap again when all are done to undo) */
+    var cm=e.target.closest('[data-cm]');
+    if(cm){var p=cm.dataset.cm.split('|'),o=rowLetters(+p[0])[p[1]];
+      if(o&&o.n){var c2=confW(),now=Date.now();
+        if(o.k>=o.n)o.keys.forEach(function(k){delete c2.m[k];});else o.keys.forEach(function(k){if(!c2.m[k])c2.m[k]=now;});
+        save();update();applyLock();}}}
   if(ev==='keydown'&&e.target.id==='notes')return;
   if(e.target.id==='notes'&&ev==='click')return;
   e.stopPropagation();if(ev!=='keydown')e.preventDefault();
