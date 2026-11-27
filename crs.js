@@ -188,7 +188,7 @@ const crsLocations = () => [...new Map([...CRS_LOCATIONS, ...crsSheets().map(s =
 function renderCrs(){
   if (CRS_OPEN && !crsMeta()) CRS_OPEN = null;      // load deleted on another device
   $('#main').innerHTML = (crsBlocked() ? `<div class="panel crs-warn"><b>CRS Various can’t reach the database yet.</b> Open Firebase console → Firestore Database → Rules, paste in the latest <code>firestore.rules</code> from the app and click Publish, then reload.</div>` : '')
-    + (CRS_OPEN ? crsSheetHtml() : crsHomeHtml());
+    + (CRS_OPEN ? crsSheetHtml() : (typeof CRS_MAN !== 'undefined' && CRS_MAN) ? crsManHtml() : crsHomeHtml());
   if (CRS_OPEN && CRS_HL){ const h = document.querySelector('.crs-grid td.hit'); if (h) setTimeout(() => h.scrollIntoView({ block:'center', behavior:'smooth' }), 50); }
 }
 
@@ -213,6 +213,7 @@ function crsHomeHtml(){
         <div><label>&nbsp;</label><button class="primary" type="submit">Open sheet</button></div>
         <div class="spacer"></div>
         <div><label>&nbsp;</label><button type="button" onclick="crsCalc()">🧮 MAM's Calculator</button></div>
+        <div><label>&nbsp;</label><button type="button" onclick="CRS_MAN=true;scrollTo(0,0);render()">📄 Manifests${(S.crsManifests || []).length ? ` (${S.crsManifests.length})` : ''}</button></div>
       </form>
       ${dl('crs-carriers', crsCarriers())}${dl('crs-locs', crsLocations())}
       <p class="muted" style="margin:8px 0 0">Same date, carrier, rego, bin and location opens the same sheet, so anyone can carry on where someone else left off.</p>

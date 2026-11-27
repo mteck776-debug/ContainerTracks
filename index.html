@@ -131,6 +131,7 @@
   #rs-frame{display:block;width:100%;height:100%;border:0;background:#fff}
   @media print{ body.rs-on header{display:none} }
   /* yard screen: view the day sheet and run sheet, fill containers */
+  #yard-tag:empty{display:none}
   #yard-tag{font-weight:600;font-size:13px;background:#2563eb;border-radius:999px;padding:2px 10px;margin-left:8px}
   body.yardmode .yard-hide{display:none !important}
   body.yardmode #main input:disabled, body.yardmode #main select:disabled, body.yardmode #main textarea:disabled{background:transparent;border-color:transparent;color:inherit;-webkit-text-fill-color:currentColor;opacity:1;appearance:none;-webkit-appearance:none}
@@ -350,6 +351,7 @@
 <script src="firebase-config.js"></script>
 <script src="xlsx.js"></script>
 <script src="crs.js"></script>
+<script src="crs-manifests.js"></script>
 
 <script>
 /* =========================================================
@@ -416,7 +418,7 @@ function migrate(st){
   });
   st.settings = Object.assign({}, BOOKING_DEFAULTS, st.settings || {});
   st.loads = st.loads || []; st.companies = st.companies || []; st.forms = st.forms || {};
-  st.lots = st.lots || []; st.reports = st.reports || []; st.crsSheets = st.crsSheets || []; st.crsBagWeights = st.crsBagWeights || {};
+  st.lots = st.lots || []; st.reports = st.reports || []; st.crsSheets = st.crsSheets || []; st.crsBagWeights = st.crsBagWeights || {}; st.crsManifests = st.crsManifests || [];
   if (typeof st.runsheet !== 'string') st.runsheet = '';
   if (!st.priceSheets || !st.priceSheets.length) st.priceSheets = [DEFAULT_PRICES()];
   if (!st.deliveryLocations || !st.deliveryLocations.length){   // first run: take them from the materials
@@ -2667,6 +2669,7 @@ function toDocs(st){
   out.settings.set('reports', { list: st.reports || [] });
   out.settings.set('prices', { sheets: st.priceSheets || [] });
   if (st.runsheet) out.settings.set('runsheet', { state: st.runsheet });
+  (st.crsManifests || []).forEach(m => out.settings.set('crsman-' + m.id, m));     // one doc per CRS manifest
   (st.loads||[]).forEach(l => out.loads.set(l.id, l));
   return out;
 }
@@ -2682,6 +2685,7 @@ function fromRemote(){
   s.trucks = {}; vals('trucks').forEach(({ rego, ...t }) => s.trucks[rego] = t);
   s.history = vals('history').sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const sdoc = id => { const j = CLOUD.remote.settings.get(id); return j ? JSON.parse(j) : null; };
+  s.crsManifests = [...CLOUD.remote.settings.entries()].filter(([k]) => k.startsWith('crsman-')).map(([, j]) => JSON.parse(j));
   s.settings = Object.assign({}, BOOKING_DEFAULTS, sdoc('booking') || {});
   s.companies = sdoc('companies')?.names || [];
   const cfgs = sdoc('truckConfigs')?.list; if (cfgs && cfgs.length) s.truckConfigs = cfgs;
