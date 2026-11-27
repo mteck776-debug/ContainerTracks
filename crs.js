@@ -85,6 +85,7 @@ function crsRulesToast(){ toast('CRS Various can’t save yet — paste the late
 /* ---------- weight split ----------
    Bags aren't weighed, glass IBCs are. Net weight − weighed glass is shared between the
    bag materials by number of bags × that material's slider (how heavy its bags are). */
+const CRS_ROUND = 20;      // bag weights go back into the system in 20 kg steps
 const CRS_W_DEF = 100, CRS_W_MAX = 200, CRS_W_STEP = 20;
 /* sliders were 0–10 at first: scale those up (5 → 100) and keep everything on steps of 20 */
 const crsWfix = v => { v = Number(v); if (isNaN(v)) return CRS_W_DEF; if (v <= 10) v *= 20; return Math.min(CRS_W_MAX, Math.max(0, Math.round(v / CRS_W_STEP) * CRS_W_STEP)); };
@@ -108,8 +109,14 @@ function crsSplit(s, over){
   if (!rows.length) { r.ok = true; return r; }
   const tot = rows.reduce((t, x) => t + x.n * x.f, 0);
   if (!tot) { r.reason = 'Move at least one slider above 0.'; return r; }
-  let left = Math.round(r.rem);
-  rows.forEach((x, i) => { x.kg = i === rows.length - 1 ? left : Math.round(r.rem * x.n * x.f / tot); left -= x.kg; });
+  /* each material is rounded to the nearest 20 kg (how it goes back into the system).
+     Largest-remainder rounding keeps the bags adding up to the rest of the net, to the nearest 20. */
+  const R = CRS_ROUND, units = rows.map(x => r.rem * x.n * x.f / tot / R);
+  let spare = Math.round(r.rem / R) - units.reduce((t, u) => t + Math.floor(u), 0);
+  rows.forEach((x, i) => x.kg = Math.floor(units[i]) * R);
+  rows.map((x, i) => [i, units[i] - Math.floor(units[i])]).sort((a, b) => b[1] - a[1])
+    .forEach(([i]) => { if (spare > 0){ rows[i].kg += R; spare--; } });
+  r.rounding = Math.round((r.rem - rows.reduce((t, x) => t + x.kg, 0)) * 10) / 10;
   r.ok = true; return r;
 }
 
@@ -417,7 +424,7 @@ function crsWeightsHtml(s){
       <td class="n">${sp.glassN - sp.unweighed ? (sp.glassKg / (sp.glassN - sp.unweighed)).toFixed(1) + ' kg' : '—'}</td><td class="n"><b>${kgf(sp.glassKg)}</b></td></tr>` : '';
   return `<div class="panel crs-weights crs-sheet">
     <h2>Weights (kg)</h2>
-    <p class="muted noprint" style="margin:0 0 10px">Enter the net weight. Glass IBCs keep their weighed kg; what's left is divided between the bags. Slide a material towards <b>Heavier</b> if its bags weigh more.</p>
+    <p class="muted noprint" style="margin:0 0 10px">Enter the net weight. Glass IBCs keep their weighed kg; what's left is divided between the bags and rounded to the nearest ${CRS_ROUND} kg. Slide a material towards <b>Heavier</b> if its bags weigh more.</p>
     <div class="row" style="align-items:flex-end;margin-bottom:10px">
       <div><label>Net weight (kg)</label><input class="crs-netin" type="number" inputmode="decimal" min="0" step="1" value="${sp.net ?? ''}" placeholder="kg" onchange="crsSetNet(this.value)"></div>
       ${sp.glassN ? `<div><label>− Glass weighed</label><b style="font-size:18px">${kgf(sp.glassKg)}</b></div>` : ''}
@@ -426,6 +433,7 @@ function crsWeightsHtml(s){
     <div class="tbl-wrap"><table>
       <thead><tr><th>Material</th><th class="n">Count</th><th class="crs-slcol">How heavy per bag</th><th class="n">Per bag</th><th class="n">Weight</th></tr></thead>
       <tbody>${rows}${glass}</tbody>
+      ${sp.ok && sp.rounding ? `<tr><td colspan="4" class="muted">Rounding (bags are rounded to the nearest ${CRS_ROUND} kg)</td><td class="n muted">${sp.rounding > 0 ? '+' : '−'}${Math.abs(sp.rounding)} kg</td></tr>` : ''}
       <tfoot><tr class="tot"><td>Total</td><td></td><td class="crs-slcol"></td><td></td><td class="n">${sp.ok ? kgf(sp.net) : '—'}</td></tr></tfoot>
     </table></div>
     ${sp.ok ? '' : `<div class="crs-msg" id="crs-wmsg">${esc(sp.reason)}</div>`}
