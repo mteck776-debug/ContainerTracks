@@ -85,9 +85,11 @@ function crsRulesToast(){ toast('CRS Various can’t save yet — paste the late
 /* ---------- weight split ----------
    Bags aren't weighed, glass IBCs are. Net weight − weighed glass is shared between the
    bag materials by number of bags × that material's slider (how heavy its bags are). */
-const CRS_W_DEF = 5;
-const crsDefW = m => { const v = (S.crsBagWeights || {})[m]; return v == null ? CRS_W_DEF : v; };
-const crsW = (s, m) => { const v = s.w && s.w[m]; return v == null ? crsDefW(m) : v; };
+const CRS_W_DEF = 100, CRS_W_MAX = 200, CRS_W_STEP = 20;
+/* sliders were 0–10 at first: scale those up (5 → 100) and keep everything on steps of 20 */
+const crsWfix = v => { v = Number(v); if (isNaN(v)) return CRS_W_DEF; if (v <= 10) v *= 20; return Math.min(CRS_W_MAX, Math.max(0, Math.round(v / CRS_W_STEP) * CRS_W_STEP)); };
+const crsDefW = m => { const v = (S.crsBagWeights || {})[m]; return v == null ? CRS_W_DEF : crsWfix(v); };
+const crsW = (s, m) => { const v = s.w && s.w[m]; return v == null ? crsDefW(m) : crsWfix(v); };
 const kgf = n => n == null || isNaN(n) ? '—' : Math.round(n).toLocaleString('en-AU') + ' kg';
 function crsSplit(s, over){
   const es = crsEntries(s), counts = {};
@@ -406,7 +408,7 @@ function crsWeightsHtml(s){
       <td><span class="crs-chip crs-${crsGroupOf(x.id)}">${esc(x.id)}</span></td>
       <td class="n">${x.n} bag${x.n === 1 ? '' : 's'}</td>
       <td class="crs-slcol"><div class="crs-sl"><small>Lighter</small>
-        <input type="range" min="0" max="10" step="0.5" value="${x.f}" data-m="${esc(x.id)}" oninput="crsSlide(this,false)" onchange="crsSlide(this,true)">
+        <input type="range" min="0" max="${CRS_W_MAX}" step="${CRS_W_STEP}" value="${x.f}" data-m="${esc(x.id)}" oninput="crsSlide(this,false)" onchange="crsSlide(this,true)">
         <small>Heavier</small><span class="crs-f">${x.f}</span></div></td>
       <td class="n" data-pb="${esc(x.id)}">${perBag(x)}</td>
       <td class="n" data-kg="${esc(x.id)}"><b>${kgf(x.kg)}</b></td></tr>`).join('');
