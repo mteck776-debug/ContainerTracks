@@ -1210,7 +1210,6 @@ function swCalc(){
   $('#sw-later').classList.toggle('hidden', r.weighOut != null);
 
   const row = (op, l, v, cls='') => `<tr class="${cls}"><td class="op">${op}</td><td>${l}</td><td class="n">${v}</td></tr>`;
-  const outTareRow = row('−', `Full container tare — ${esc(r.c.id)}${esc(tareSrc(r.c))}`, kg(r.outTare));
   let html = '';
 
   if (r.net != null){
@@ -1221,14 +1220,15 @@ function swCalc(){
       rows += row('', '1st weigh — truck in', kg(r.weighIn));
       rows += row('−', `Empty container tare it brought${r.inId ? ` — ${esc(r.inId)}` : ' (came in bare)'}`, kg(r.inTare));
       rows += row('=', 'Truck tare', kg(r.truckTare), 'sub');
-      rows += `<tr><td colspan="3" style="height:8px"></td></tr>`;
-      rows += row('', '2nd weigh — truck out, loaded', kg(r.weighOut));
-      rows += row('−', 'Truck tare', kg(r.truckTare));
     } else {
-      rows += row('', '2nd weigh — truck out, loaded', kg(r.weighOut));
-      rows += row('−', `Truck tare — last known for ${esc(r.rego)} <span class="muted">(no 1st weigh entered)</span>`, kg(r.truckTare));
+      rows += row('', `Truck tare — last known for ${esc(r.rego)} <span class="muted">(no 1st weigh entered)</span>`, kg(r.truckTare), 'sub');
     }
-    rows += outTareRow;
+    /* tare going out = truck + the empty weight of the container it leaves with */
+    rows += row('+', `Empty container weight going out — ${esc(r.c.id)}${esc(tareSrc(r.c))}`, kg(r.outTare));
+    rows += row('=', 'Tare going out', kg(r.truckTare + r.outTare), 'sub');
+    rows += `<tr><td colspan="3" style="height:8px"></td></tr>`;
+    rows += row('', '2nd weigh — truck out, loaded', kg(r.weighOut));
+    rows += row('−', 'Tare going out', kg(r.truckTare + r.outTare));
     const per = r.bales ? r.net / r.bales : null, diff = r.net - r.est;
     html = `
       <div class="row" style="justify-content:space-between;align-items:center">
@@ -1250,7 +1250,8 @@ function swCalc(){
     } else {
       rows += row('', 'Truck tare', '<span class="muted">enter the 1st weigh</span>', 'sub');
     }
-    rows += row('+', `Full container tare — ${esc(r.c.id)}${esc(tareSrc(r.c))}`, kg(r.outTare));
+    rows += row('+', `Empty container weight going out — ${esc(r.c.id)}${esc(tareSrc(r.c))}`, kg(r.outTare));
+    if (r.truckTare != null && r.outTare != null) rows += row('=', 'Tare going out', kg(r.truckTare + r.outTare), 'sub');
     rows += row('+', `Bale estimate (${r.bales} × ${bt(r.m.baleKg)})`, kg(r.est));
     html = `
       <div class="row" style="justify-content:space-between;align-items:center">
