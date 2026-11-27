@@ -271,13 +271,24 @@
     table.crs-meta{width:100%} table.crs-meta td{min-width:0;white-space:normal}
     table.crs-meta th{white-space:nowrap;font-size:13px}
   }
+  .crs-weights h2{margin-bottom:4px}
+  .crs-weights table td{vertical-align:middle}
+  .crs-weights input[type=range]{width:100%;min-width:140px;accent-color:var(--accent)}
+  .crs-weights .crs-sl{display:flex;align-items:center;gap:8px}
+  .crs-weights .crs-sl small{color:var(--muted);font-size:11px}
+  .crs-weights .crs-f{font-weight:700;min-width:28px;text-align:right;font-variant-numeric:tabular-nums}
+  .crs-weights tr.tot td{font-weight:800;border-top:2px solid var(--ink)}
+  .crs-weights .crs-msg{margin-top:8px;padding:8px 10px;border-radius:8px;background:#fff3e0;color:#8a4b08}
+  .crs-netin{width:130px !important;font-size:18px;font-weight:700}
+  table.crs-rpt td small{display:block;font-size:11px;color:var(--muted);font-weight:400}
   .crs-fab{position:fixed;right:22px;bottom:22px;width:62px;height:62px;border-radius:50%;background:var(--accent);border-color:var(--accent);color:#fff;font-size:32px;line-height:1;box-shadow:0 6px 18px rgba(0,0,0,.3);z-index:6}
   @media (min-width:900px){.crs-fab{display:none}}
   body.crs-print .crs-sheet{border:0;padding:0;margin:0;box-shadow:none;max-width:none}
   body.crs-print table.crs-grid{min-width:0}
   body.crs-print table.crs-grid th,body.crs-print table.crs-grid td{height:25px;padding:2px 6px}
   body.crs-print table.crs-grid td.pending .txt,body.crs-print table.crs-meta td.crs-ph{color:transparent}
-  body.crs-print .crs-tick{display:none}
+  body.crs-print .crs-tick,body.crs-print .crs-wbtns,body.crs-print .crs-slcol{display:none}
+  body.crs-print .crs-weights{padding:0;margin-top:8px}
   body.crs-print table.crs-grid td.done,body.crs-print table.crs-grid td.hit{background:none !important;box-shadow:none}
   @media print{
     body.crs-print .crs-warn{display:none}
@@ -405,7 +416,7 @@ function migrate(st){
   });
   st.settings = Object.assign({}, BOOKING_DEFAULTS, st.settings || {});
   st.loads = st.loads || []; st.companies = st.companies || []; st.forms = st.forms || {};
-  st.lots = st.lots || []; st.reports = st.reports || []; st.crsSheets = st.crsSheets || [];
+  st.lots = st.lots || []; st.reports = st.reports || []; st.crsSheets = st.crsSheets || []; st.crsBagWeights = st.crsBagWeights || {};
   if (typeof st.runsheet !== 'string') st.runsheet = '';
   if (!st.priceSheets || !st.priceSheets.length) st.priceSheets = [DEFAULT_PRICES()];
   if (!st.deliveryLocations || !st.deliveryLocations.length){   // first run: take them from the materials
@@ -2651,7 +2662,7 @@ function toDocs(st){
   out.settings.set('companies', { names: st.companies });
   out.settings.set('truckConfigs', { list: st.truckConfigs });
   out.settings.set('forms', { byLocation: st.forms || {} });
-  out.settings.set('crs', { lots: st.lots || [], materials: st.crsMaterials || [] });
+  out.settings.set('crs', { lots: st.lots || [], materials: st.crsMaterials || [], bagWeights: st.crsBagWeights || {} });
   out.settings.set('locations', { list: st.deliveryLocations || [] });
   out.settings.set('reports', { list: st.reports || [] });
   out.settings.set('prices', { sheets: st.priceSheets || [] });
@@ -2681,7 +2692,7 @@ function fromRemote(){
   const locs = sdoc('locations')?.list; if (locs && locs.length) s.deliveryLocations = locs;
   s.runsheet = (RS_DIRTY && S && S.runsheet) || sdoc('runsheet')?.state || (S && S.runsheet) || '';   // unsaved typing wins
   const crs = sdoc('crs');
-  if (crs){ s.lots = crs.lots || []; if (crs.materials?.length) s.crsMaterials = crs.materials; }
+  if (crs){ s.lots = crs.lots || []; if (crs.materials?.length) s.crsMaterials = crs.materials; s.crsBagWeights = crs.bagWeights || {}; }
   const fd = sdoc('forms') || {};
   s.forms = Object.assign({}, fd.byLocation || {}, fd.genuine ? { genuine: fd.genuine } : {});
   migrate(s);

@@ -82,6 +82,35 @@ function crsDeleteSheet(id){
 }
 function crsRulesToast(){ toast('CRS Various can’t save yet — paste the latest firestore.rules into Firebase and Publish'); }
 
+/* ---------- weight split ----------
+   Bags aren't weighed, glass IBCs are. Net weight − weighed glass is shared between the
+   bag materials by number of bags × that material's slider (how heavy its bags are). */
+const CRS_W_DEF = 5;
+const crsDefW = m => { const v = (S.crsBagWeights || {})[m]; return v == null ? CRS_W_DEF : v; };
+const crsW = (s, m) => { const v = s.w && s.w[m]; return v == null ? crsDefW(m) : v; };
+const kgf = n => n == null || isNaN(n) ? '—' : Math.round(n).toLocaleString('en-AU') + ' kg';
+function crsSplit(s, over){
+  const es = crsEntries(s), counts = {};
+  es.forEach(e => counts[e.material] = (counts[e.material] || 0) + 1);
+  const gl = es.filter(e => crsGroupOf(e.material) === 'glass');
+  const unweighed = gl.filter(e => e.weight === '' || e.weight == null).length;
+  const glassKg = gl.reduce((t, e) => t + (e.weight === '' || e.weight == null ? 0 : Number(e.weight) || 0), 0);
+  const rows = CRS_MATS.filter(m => m.group !== 'glass' && counts[m.id])
+    .map(m => ({ id: m.id, n: counts[m.id], f: over && over[m.id] != null ? over[m.id] : crsW(s, m.id), kg: null }));
+  const net = s.net === '' || s.net == null ? null : Number(s.net);
+  const r = { net, glassKg, glassN: gl.length, unweighed, rows, ok: false, rem: null, reason: '' };
+  if (net == null) { r.reason = 'Enter the net weight to divide it up between the materials.'; return r; }
+  if (unweighed) { r.reason = `Waiting on the glass: ${unweighed} IBC${unweighed === 1 ? '' : 's'} still to weigh. The weight is divided up once every IBC has a weight.`; return r; }
+  r.rem = net - glassKg;
+  if (r.rem < 0) { r.reason = `The glass (${kgf(glassKg)}) weighs more than the net weight. Check the net weight and IBC weights.`; return r; }
+  if (!rows.length) { r.ok = true; return r; }
+  const tot = rows.reduce((t, x) => t + x.n * x.f, 0);
+  if (!tot) { r.reason = 'Move at least one slider above 0.'; return r; }
+  let left = Math.round(r.rem);
+  rows.forEach((x, i) => { x.kg = i === rows.length - 1 ? left : Math.round(r.rem * x.n * x.f / tot); left -= x.kg; });
+  r.ok = true; return r;
+}
+
 /* ---------- summaries ---------- */
 function crsSum(s){
   const counts = {}; let glassKg = 0, toWeigh = 0, done = 0;
@@ -93,7 +122,9 @@ function crsSum(s){
       if (e.weight === '' || e.weight == null) toWeigh++; else glassKg += Number(e.weight) || 0;
     }
   });
-  return { counts, glassKg, toWeigh, done, total: es.length };
+  const sp = crsSplit(s), kg = {};
+  if (sp.ok){ sp.rows.forEach(x => kg[x.id] = x.kg); if (sp.glassN) kg.Glass = glassKg; }
+  return { counts, glassKg, toWeigh, done, total: es.length, net: sp.net, split: sp.ok, kg };
 }
 function crsRange(){
   const p = CRS_UI.period, today = ymd();
@@ -124,12 +155,13 @@ function crsGroupKey(s, g){
   return [v ? v.toLowerCase() : '~', v || (g === 'location' ? 'No location' : '—')];
 }
 function crsGroup(list, g){
-  const map = new Map(), total = { name:'Total', loads:0, counts:{}, glassKg:0, toWeigh:0 };
+  const map = new Map(), total = { name:'Total', loads:0, counts:{}, glassKg:0, toWeigh:0, kg:{}, net:0, split:0 };
   list.forEach(s => {
     const [k, name] = crsGroupKey(s, g), sm = crsSum(s);
-    if (!map.has(k)) map.set(k, { k, name, loads:0, counts:{}, glassKg:0, toWeigh:0 });
+    if (!map.has(k)) map.set(k, { k, name, loads:0, counts:{}, glassKg:0, toWeigh:0, kg:{}, net:0, split:0 });
     [map.get(k), total].forEach(r => {
       r.loads++; r.glassKg += sm.glassKg; r.toWeigh += sm.toWeigh;
+      if (sm.split){ r.split++; r.net += sm.net || 0; Object.entries(sm.kg).forEach(([m, v]) => r.kg[m] = (r.kg[m] || 0) + v); }
       Object.entries(sm.counts).forEach(([m, n]) => r.counts[m] = (r.counts[m] || 0) + n);
     });
   });
@@ -189,7 +221,7 @@ function crsHomeHtml(){
       <div class="stat"><b>${total.loads}</b><span>Loads</span></div>
       <div class="stat"><b>${bags.toLocaleString('en-AU')}</b><span>Bags</span></div>
       <div class="stat"><b>${(total.counts.Glass || 0).toLocaleString('en-AU')}</b><span>Glass IBCs</span></div>
-      <div class="stat"><b>${tn(total.glassKg)}</b><span>Glass weighed</span></div>
+      <div class="stat"><b>${kgf(total.net)}</b><span>Net weight (${total.split} of ${total.loads} split)</span></div>
       ${total.toWeigh ? `<div class="stat warn"><b>${total.toWeigh}</b><span>IBCs to weigh</span></div>` : ''}
     </div>
 
@@ -199,7 +231,7 @@ function crsHomeHtml(){
         <div class="spacer"></div>
         <span class="noprint" style="display:flex;flex-wrap:wrap;gap:6px">${CRS_GROUPS.map(([v, l]) => `<button class="fchip ${CRS_UI.group === v ? 'on' : ''}" onclick="crsUI({group:'${v}'})">${l}</button>`).join('')}</span>
       </div>
-      <p class="muted" style="margin:0 0 8px">Bags per material (glass counted in IBCs) · ${crsPeriodText()}</p>
+      <p class="muted" style="margin:0 0 8px">Bags per material (glass counted in IBCs), with the kg from each load's weight split underneath · ${crsPeriodText()}</p>
       ${crsTableHtml(rows, total, groupLabel)}
     </div>
 
@@ -222,9 +254,10 @@ function crsHomeHtml(){
 }
 function crsTableHtml(rows, total, label){
   const numTd = (n, d = 0) => { const v = +(n || 0).toFixed(d); return `<td class="n ${v ? '' : 'zero'}">${v ? v.toLocaleString('en-AU') : '–'}</td>`; };
-  const tRow = r => `<td>${esc(r.name)}</td>${numTd(r.loads)}${CRS_MATS.map(m => numTd(r.counts[m.id])).join('')}${numTd(r.glassKg / 1000, 2)}`;
+  const mTd = (r, m) => { const n = r.counts[m.id] || 0; return n ? `<td class="n">${n.toLocaleString('en-AU')}${r.kg[m.id] != null ? `<small>${kgf(r.kg[m.id])}</small>` : ''}</td>` : `<td class="n zero">–</td>`; };
+  const tRow = r => `<td>${esc(r.name)}${r.split < r.loads ? `<small class="muted">${r.split ? `${r.loads - r.split} not split yet` : 'not split yet'}</small>` : ''}</td>${numTd(r.loads)}${CRS_MATS.map(m => mTd(r, m)).join('')}<td class="n">${r.split ? kgf(r.net) : '–'}</td>`;
   return `<div class="tbl-wrap"><table class="crs-rpt">
-    <thead><tr><th>${label}</th><th class="n">Loads</th>${CRS_MATS.map(m => `<th class="n crs-${m.group}">${m.group === 'glass' ? 'Glass (IBC)' : esc(m.id)}</th>`).join('')}<th class="n crs-glass">Glass t</th></tr></thead>
+    <thead><tr><th>${label}</th><th class="n">Loads</th>${CRS_MATS.map(m => `<th class="n crs-${m.group}">${m.group === 'glass' ? 'Glass (IBC)' : esc(m.id)}</th>`).join('')}<th class="n">Net kg</th></tr></thead>
     <tbody>${rows.map(r => `<tr>${tRow(r)}</tr>`).join('') || `<tr><td colspan="${CRS_MATS.length + 3}" class="muted">No bulka bags in this period.</td></tr>`}</tbody>
     ${rows.length > 1 ? `<tfoot><tr class="tot">${tRow(total)}</tr></tfoot>` : ''}
   </table></div>`;
@@ -250,7 +283,7 @@ function bulkaPanel(from, to){
       <div class="stat"><span>Truck loads</span><b>${total.loads}</b></div>
       <div class="stat"><span>Bags</span><b>${bags.toLocaleString('en-AU')}</b></div>
       <div class="stat"><span>Glass IBCs</span><b>${(total.counts.Glass || 0).toLocaleString('en-AU')}</b></div>
-      <div class="stat"><span>Glass weighed</span><b>${tn(total.glassKg)}</b></div>
+      <div class="stat"><span>Net weight (${total.split} of ${total.loads} split)</span><b>${kgf(total.net)}</b></div>
     </div>
     ${crsTableHtml(rows, total, label)}
     <div class="row noprint" style="margin-top:10px">
@@ -263,12 +296,12 @@ function bulkaPanel(from, to){
 function crsRecentItem(s){
   const sm = crsSum(s), all = sm.done >= sm.total;
   const chips = CRS_MATS.filter(m => sm.counts[m.id]).map(m => `<span class="crs-chip crs-${m.group}">${m.group === 'glass'
-    ? `Glass ${sm.counts[m.id]} IBC${sm.glassKg ? ' · ' + tn(sm.glassKg) : ''}${sm.toWeigh ? ` · ${sm.toWeigh} to weigh` : ''}` : `${m.short} ${sm.counts[m.id]}`}</span>`).join('');
+    ? `Glass ${sm.counts[m.id]} IBC${sm.glassKg ? ' · ' + kgf(sm.glassKg) : ''}${sm.toWeigh ? ` · ${sm.toWeigh} to weigh` : ''}` : `${m.short} ${sm.counts[m.id]}`}</span>`).join('');
   const sub = [s.bin && `Bin ${esc(s.bin)}`, esc(s.location), s.manifest && `Manifest ${esc(s.manifest)}`].filter(Boolean).join(' · ');
   return `<button class="crs-item" onclick="crsOpen('${s.id}')">
     <div class="crs-idate"><b>${crsD(s.date).slice(0, 5)}</b><span>${crsDay(s.date)}</span></div>
     <div class="crs-imain"><div><b>${esc(s.carrier)}</b> · <span class="crs-rego">${esc(s.rego)}</span></div>${sub ? `<div class="muted">${sub}</div>` : ''}</div>
-    <div class="crs-ichips">${chips}<span class="crs-chip ${all ? 'crs-done' : 'crs-todo'}">${all ? '✓ All ticked' : `✓ ${sm.done}/${sm.total}`}</span></div>
+    <div class="crs-ichips">${chips}<span class="crs-chip ${all ? 'crs-done' : 'crs-todo'}">${all ? '✓ All ticked' : `✓ ${sm.done}/${sm.total}`}</span>${sm.split ? `<span class="crs-chip crs-done">⚖ ${kgf(sm.net)}</span>` : sm.net != null ? `<span class="crs-chip crs-todo">⚖ not split</span>` : ''}</div>
   </button>`;
 }
 function crsDay(date){
@@ -364,7 +397,69 @@ function crsSheetHtml(){
     <div class="crs-sum noprint">${CRS_MATS.filter(x => sm.counts[x.id]).map(x => `<span class="crs-chip crs-${x.group}">${esc(x.id)}: ${sm.counts[x.id]}</span>`).join('')}
       ${sm.total ? `<span class="crs-chip ${sm.done === sm.total ? 'crs-done' : ''}">${sm.done === sm.total ? `✓ All ${sm.done} ticked off` : `✓ ${sm.done} of ${sm.total} ticked off`}</span>` : ''}</div>
   </div>
+  ${s ? crsWeightsHtml(s) : ''}
   <button class="crs-fab noprint" onclick="crsEntry()" aria-label="Add entry">+</button>`;
+}
+function crsWeightsHtml(s){
+  const sp = crsSplit(s), perBag = x => x.kg != null && x.n ? (x.kg / x.n).toFixed(1) + ' kg' : '—';
+  const rows = sp.rows.map(x => `<tr>
+      <td><span class="crs-chip crs-${crsGroupOf(x.id)}">${esc(x.id)}</span></td>
+      <td class="n">${x.n} bag${x.n === 1 ? '' : 's'}</td>
+      <td class="crs-slcol"><div class="crs-sl"><small>Lighter</small>
+        <input type="range" min="0" max="10" step="0.5" value="${x.f}" data-m="${esc(x.id)}" oninput="crsSlide(this,false)" onchange="crsSlide(this,true)">
+        <small>Heavier</small><span class="crs-f">${x.f}</span></div></td>
+      <td class="n" data-pb="${esc(x.id)}">${perBag(x)}</td>
+      <td class="n" data-kg="${esc(x.id)}"><b>${kgf(x.kg)}</b></td></tr>`).join('');
+  const glass = sp.glassN ? `<tr><td><span class="crs-chip crs-glass">Glass</span></td><td class="n">${sp.glassN} IBC${sp.glassN === 1 ? '' : 's'}</td>
+      <td class="crs-slcol muted">Weighed${sp.unweighed ? ` · <span class="neg">${sp.unweighed} to weigh</span>` : ''}</td>
+      <td class="n">${sp.glassN - sp.unweighed ? (sp.glassKg / (sp.glassN - sp.unweighed)).toFixed(1) + ' kg' : '—'}</td><td class="n"><b>${kgf(sp.glassKg)}</b></td></tr>` : '';
+  return `<div class="panel crs-weights crs-sheet">
+    <h2>Weights (kg)</h2>
+    <p class="muted noprint" style="margin:0 0 10px">Enter the net weight. Glass IBCs keep their weighed kg; what's left is divided between the bags. Slide a material towards <b>Heavier</b> if its bags weigh more.</p>
+    <div class="row" style="align-items:flex-end;margin-bottom:10px">
+      <div><label>Net weight (kg)</label><input class="crs-netin" type="number" inputmode="decimal" min="0" step="1" value="${sp.net ?? ''}" placeholder="kg" onchange="crsSetNet(this.value)"></div>
+      ${sp.glassN ? `<div><label>− Glass weighed</label><b style="font-size:18px">${kgf(sp.glassKg)}</b></div>` : ''}
+      <div><label>= To divide between bags</label><b style="font-size:18px" id="crs-rem">${sp.rem != null ? kgf(sp.rem) : '—'}</b></div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Material</th><th class="n">Count</th><th class="crs-slcol">How heavy per bag</th><th class="n">Per bag</th><th class="n">Weight</th></tr></thead>
+      <tbody>${rows}${glass}</tbody>
+      <tfoot><tr class="tot"><td>Total</td><td></td><td class="crs-slcol"></td><td></td><td class="n">${sp.ok ? kgf(sp.net) : '—'}</td></tr></tfoot>
+    </table></div>
+    ${sp.ok ? '' : `<div class="crs-msg" id="crs-wmsg">${esc(sp.reason)}</div>`}
+    ${sp.rows.length ? `<div class="row crs-wbtns noprint" style="margin-top:10px">
+      <button class="small" onclick="crsSliderDefaults()">Reset sliders to default</button>
+      <button class="small" onclick="crsSaveDefaults()">Save these sliders as the default</button></div>` : ''}
+  </div>`;
+}
+function crsSetNet(v){
+  const s = crsOpenSheet(); if (!s) return;
+  const n = String(v).trim() === '' ? null : Math.max(0, Number(v));
+  if (n != null && isNaN(n)) return toast('Net weight must be a number');
+  crsPatch(s.id, { net: n }); render();
+}
+/* while dragging: update the numbers only (the slider itself must not be redrawn); on release: save */
+function crsSlide(el, commit){
+  const s = crsOpenSheet(); if (!s) return;
+  const over = {}; document.querySelectorAll('.crs-weights input[type=range]').forEach(r => over[r.dataset.m] = Number(r.value));
+  el.parentElement.querySelector('.crs-f').textContent = el.value;
+  if (commit){ crsPatch(s.id, { w: Object.assign({}, s.w || {}, over) }); return render(); }
+  const sp = crsSplit(s, over);
+  sp.rows.forEach(x => {
+    const kgEl = document.querySelector(`.crs-weights [data-kg="${CSS.escape(x.id)}"]`), pbEl = document.querySelector(`.crs-weights [data-pb="${CSS.escape(x.id)}"]`);
+    if (kgEl) kgEl.innerHTML = `<b>${kgf(x.kg)}</b>`;
+    if (pbEl) pbEl.textContent = x.kg != null ? (x.kg / x.n).toFixed(1) + ' kg' : '—';
+  });
+}
+function crsSliderDefaults(){
+  const s = crsOpenSheet(); if (!s) return;
+  crsPatch(s.id, { w: null }); render(); toast('Sliders back to the default');
+}
+function crsSaveDefaults(){
+  const s = crsOpenSheet(); if (!s) return;
+  S.crsBagWeights = Object.assign({}, S.crsBagWeights || {});
+  crsSplit(s).rows.forEach(x => S.crsBagWeights[x.id] = x.f);
+  save(); toast('Saved as the default for new loads');
 }
 function crsCellClick(ev, id){
   if (ev.target.classList.contains('crs-tick')) return;
@@ -503,25 +598,27 @@ function crsExportList(list, fileLabel, title){
   title = title || fileLabel;
   if (!list.length) return toast('No loads in this period to export');
   if (!window.downloadXlsx) return toast('Excel export didn’t load — reload the page');
-  const head = CRS_MATS.map(m => m.group === 'glass' ? 'Glass (IBC)' : m.id);
+  const head = CRS_MATS.map(m => m.group === 'glass' ? 'Glass (IBC)' : m.id), kgHead = CRS_MATS.map(m => m.id + ' kg');
   const tab = (g, label) => {
     const { rows, total } = crsGroup(list, g);
-    const out = [[`${title} – by ${label.toLowerCase()}`], [], [label, 'Loads', ...head, 'Glass kg', 'Glass to weigh'],
-      ...rows.map(r => [r.name, r.loads, ...CRS_MATS.map(m => r.counts[m.id] || 0), crsKg(r.glassKg), r.toWeigh]),
-      ['Total', total.loads, ...CRS_MATS.map(m => total.counts[m.id] || 0), crsKg(total.glassKg), total.toWeigh]];
-    return { name: 'By ' + label.toLowerCase(), rows: out, widths: [24, 8, ...CRS_MATS.map(() => 13), 10, 13], titleRows: [0], boldRows: [2, out.length - 1] };
+    const line = r => [r.name, r.loads, ...CRS_MATS.map(m => r.counts[m.id] || 0), ...CRS_MATS.map(m => r.kg[m.id] != null ? Math.round(r.kg[m.id]) : ''), r.split ? Math.round(r.net) : '', r.split, r.toWeigh];
+    const out = [[`${title} – by ${label.toLowerCase()}`], [], [label, 'Loads', ...head, ...kgHead, 'Net kg', 'Loads split', 'Glass to weigh'],
+      ...rows.map(line), line(total)];
+    return { name: 'By ' + label.toLowerCase(), rows: out, widths: [24, 8, ...CRS_MATS.map(() => 12), ...CRS_MATS.map(() => 13), 11, 11, 13], titleRows: [0], boldRows: [2, out.length - 1] };
   };
-  const loads = [['Date', 'Carrier', 'Truck Rego', 'Bin No', 'Location', 'Manifest No', ...head, 'Glass kg', 'Glass to weigh', 'Total items', 'Ticked off'],
+  const loads = [['Date', 'Carrier', 'Truck Rego', 'Bin No', 'Location', 'Manifest No', ...head, 'Net kg', ...kgHead, 'Weight split', 'Glass to weigh', 'Total items', 'Ticked off'],
     ...list.map(s => { const sm = crsSum(s); return [{ date: s.date }, s.carrier, s.rego, s.bin || '', s.location || '', s.manifest || '',
-      ...CRS_MATS.map(m => sm.counts[m.id] || 0), crsKg(sm.glassKg), sm.toWeigh, sm.total, sm.done]; })];
-  const items = [['Date', 'Carrier', 'Truck Rego', 'Bin No', 'Location', 'Manifest No', 'Material', 'Group', 'Bag Number', 'IBC #', 'Weight (kg)', 'Ticked off', 'Added'],
-    ...list.flatMap(s => crsEntries(s).map(e => [{ date: s.date }, s.carrier, s.rego, s.bin || '', s.location || '', s.manifest || '', e.material,
-      { alu:'Aluminium', other:'Other', glass:'Glass' }[crsGroupOf(e.material)], e.bag || '', e.ibc || '',
-      e.weight === '' || e.weight == null ? '' : Number(e.weight), e.done ? 'Yes' : '', e.createdAt ? fmtDate(e.createdAt) : '']))];
+      ...CRS_MATS.map(m => sm.counts[m.id] || 0), sm.net == null ? '' : sm.net, ...CRS_MATS.map(m => sm.kg[m.id] != null ? Math.round(sm.kg[m.id]) : ''),
+      sm.split ? 'Yes' : sm.net == null ? 'No net weight' : 'Waiting on glass', sm.toWeigh, sm.total, sm.done]; })];
+  const items = [['Date', 'Carrier', 'Truck Rego', 'Bin No', 'Location', 'Manifest No', 'Material', 'Group', 'Bag Number', 'IBC #', 'Weight (kg)', 'Weighed or estimated', 'Ticked off', 'Added'],
+    ...list.flatMap(s => { const sp = crsSplit(s), per = {}; if (sp.ok) sp.rows.forEach(x => per[x.id] = Math.round(x.kg / x.n * 10) / 10);
+      return crsEntries(s).map(e => { const g = crsGroupOf(e.material), w = g === 'glass' ? (e.weight === '' || e.weight == null ? '' : Number(e.weight)) : (per[e.material] ?? '');
+        return [{ date: s.date }, s.carrier, s.rego, s.bin || '', s.location || '', s.manifest || '', e.material,
+        { alu:'Aluminium', other:'Other', glass:'Glass' }[g], e.bag || '', e.ibc || '', w, w === '' ? '' : g === 'glass' ? 'Weighed' : 'Estimated', e.done ? 'Yes' : '', e.createdAt ? fmtDate(e.createdAt) : '']; }); })];
   window.downloadXlsx(crsSafe(`${fileLabel} - ${ymd()}.xlsx`), [
     tab('location', 'Location'), tab('month', 'Month'), tab('carrier', 'Carrier'),
-    { name: 'Loads', rows: loads, widths: [12, 18, 12, 10, 18, 14, ...CRS_MATS.map(() => 13), 10, 14, 11, 11], boldRows: [0] },
-    { name: 'Every bag and IBC', rows: items, widths: [12, 18, 12, 10, 18, 14, 14, 11, 12, 10, 11, 10, 18], boldRows: [0] },
+    { name: 'Loads', rows: loads, widths: [12, 18, 12, 10, 18, 14, ...CRS_MATS.map(() => 12), 10, ...CRS_MATS.map(() => 13), 16, 14, 11, 11], boldRows: [0] },
+    { name: 'Every bag and IBC', rows: items, widths: [12, 18, 12, 10, 18, 14, 14, 11, 12, 10, 11, 18, 10, 18], boldRows: [0] },
   ]);
 }
 function crsExportSheet(){
@@ -533,7 +630,9 @@ function crsExportSheet(){
   const rows = [['Incoming CRS Various Material'], ['Date', { date: s.date }, '', 'Truck Rego', s.rego], ['Carrier', s.carrier, '', 'Bin No', s.bin || ''],
     ['Location', s.location || ''], ['Manifest No', s.manifest || ''], [], ['Material', 'Bag Number', 'IBC #', 'Weight (kg)', 'Added', 'Ticked off'],
     ...es.map(e => [e.material, e.bag || '', e.ibc || '', e.weight === '' || e.weight == null ? '' : Number(e.weight), t(e.createdAt), e.done ? `Yes ${t(e.doneAt)}`.trim() : '']),
-    [], ['Totals'], ...totals];
+    [], ['Totals', 'Count', 'Weight (kg)'], ...totals.map(([m, n]) => { const sp = crsSplit(s), x = sp.rows.find(r => r.id === m);
+      return [m, n, m === 'Glass' ? (sp.glassKg || '') : x && x.kg != null ? x.kg : '']; }),
+    ['Net weight (kg)', '', s.net == null ? '' : s.net]];
   window.downloadXlsx(crsSafe(`${s.date} ${s.carrier} ${s.rego}.xlsx`), [{ name:'Sheet', rows, widths:[16, 16, 12, 12, 10, 14], titleRows:[0], boldRows:[6, 8 + es.length] }]);
 }
 
