@@ -1215,11 +1215,17 @@ function swCalc(){
 
   if (r.net != null){
     /* both weighings in: this is the real figure */
-    let rows = row('', '2nd weigh — truck out, loaded', kg(r.weighOut));
+    let rows = '';
     if (r.src === 'in'){
-      rows += row('−', '1st weigh — truck in', kg(r.weighIn));
-      if (r.inId) rows += row('+', `Empty container tare it brought — ${esc(r.inId)}`, kg(r.inTare));
+      /* truck tare first: what came in, minus the empty container it brought */
+      rows += row('', '1st weigh — truck in', kg(r.weighIn));
+      rows += row('−', `Empty container tare it brought${r.inId ? ` — ${esc(r.inId)}` : ' (came in bare)'}`, kg(r.inTare));
+      rows += row('=', 'Truck tare', kg(r.truckTare), 'sub');
+      rows += `<tr><td colspan="3" style="height:8px"></td></tr>`;
+      rows += row('', '2nd weigh — truck out, loaded', kg(r.weighOut));
+      rows += row('−', 'Truck tare', kg(r.truckTare));
     } else {
+      rows += row('', '2nd weigh — truck out, loaded', kg(r.weighOut));
       rows += row('−', `Truck tare — last known for ${esc(r.rego)} <span class="muted">(no 1st weigh entered)</span>`, kg(r.truckTare));
     }
     rows += outTareRow;
@@ -1255,6 +1261,7 @@ function swCalc(){
   }
   if (r.weighIn!=null && r.inTare!=null && r.weighIn < r.inTare) html += '<div class="note">1st weigh is less than the empty container tare — check the numbers.</div>';
   if (r.outTare == null) html += `<div class="note">No tare for ${esc(r.c.id)} — add its prefix tare in Setup.</div>`;
+  if (r.inId && r.inTare == null) html += `<div class="note">No tare for the empty container ${esc(r.inId)}, so its weight can't be taken off the 1st weigh. Add its prefix tare in Setup.</div>`;
   $('#sw-calc').innerHTML = html;
 }
 
