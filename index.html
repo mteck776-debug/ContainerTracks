@@ -222,6 +222,69 @@
   h3.mat-grp{margin:14px 0 6px;font-size:16px;letter-spacing:.06em;color:var(--accent)}
   .mams-item.done{opacity:.5;text-decoration:line-through}
   .tag a{color:var(--muted);text-decoration:none}
+
+  /* CRS Various */
+  .crs-alu{background:#f2f2f2} .crs-other{background:#ead1dc} .crs-glass{background:#ffd966}
+  .crs-warn{border-left:6px solid var(--bad)}
+  .crs-import{margin-top:12px;padding:10px 12px;border:1px dashed var(--accent);border-radius:10px;background:#fff7ef;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .stat.warn b{color:var(--warn)}
+  table.crs-rpt td.zero{color:#b8bfc7}
+  table.crs-rpt th.crs-alu,table.crs-rpt th.crs-other,table.crs-rpt th.crs-glass{color:#333}
+  table.crs-rpt tr.tot td{font-weight:800;border-top:2px solid var(--ink)}
+  .crs-recent{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+  .crs-item{display:grid;grid-template-columns:54px 1fr;gap:4px 10px;text-align:left;padding:8px 10px;width:100%}
+  .crs-item:hover{border-color:var(--accent)}
+  .crs-idate{grid-row:span 2;display:flex;flex-direction:column;align-items:center;justify-content:center;border-right:1px solid var(--line)}
+  .crs-idate b{font-size:16px} .crs-idate span{font-size:12px;color:var(--muted)}
+  .crs-ichips{display:flex;flex-wrap:wrap;gap:4px}
+  .crs-rego{font-family:ui-monospace,Consolas,monospace;font-weight:700}
+  .crs-chip{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid #0001;background:#eef1f4;color:#222}
+  .crs-chip.crs-done{background:#dff3e6;color:var(--good)} .crs-chip.crs-todo{background:#fff3e0;color:#8a4b08}
+  .crs-hit{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;width:100%;text-align:left;margin-top:6px}
+  .crs-hit.exact{border-color:var(--accent)} .crs-hit mark{background:#ffe27a;padding:0 1px}
+  .crs-struck{text-decoration:line-through;color:var(--muted)}
+  .crs-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;position:sticky;top:56px;z-index:3}
+  .crs-sheet{max-width:900px;margin-left:auto;margin-right:auto}
+  table.crs-meta{width:auto;margin:0 auto 14px;cursor:pointer}
+  table.crs-meta th{text-align:right;font-weight:400;text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink);border:1px solid #111;padding:3px 6px}
+  table.crs-meta td{min-width:120px;font-weight:600;border:1px solid #111;padding:3px 6px}
+  table.crs-meta td.crs-ph{color:var(--muted);font-weight:400;font-style:italic}
+  table.crs-grid{table-layout:fixed;min-width:540px;font-size:14px}
+  table.crs-grid th,table.crs-grid td{border:1px solid #111;padding:3px 6px;height:30px;overflow:hidden;text-overflow:ellipsis}
+  table.crs-grid thead th{text-transform:none;letter-spacing:0;color:#111;font-weight:400;background:#fff;font-size:13px}
+  table.crs-grid tr.grp th{text-align:center;font-size:15px;font-weight:700}
+  table.crs-grid tr.grp th.crs-alu{background:#f2f2f2} table.crs-grid tr.grp th.crs-other{background:#ead1dc} table.crs-grid tr.grp th.crs-glass{background:#ffd966}
+  table.crs-grid td.idx{color:var(--muted);text-align:center}
+  table.crs-grid td.filled{cursor:pointer} table.crs-grid td.filled:hover{background:#fdf0e4}
+  table.crs-grid td.pending .txt{color:var(--muted);font-style:italic}
+  table.crs-grid td.done{background:#f4f6f5} table.crs-grid td.done .txt{text-decoration:line-through;text-decoration-thickness:2px;color:#8a8f98}
+  table.crs-grid td.hit{background:#fff1a8 !important;box-shadow:inset 0 0 0 2px #e0b400}
+  table.crs-grid tfoot td{font-weight:700;background:#fafafa;white-space:normal}
+  .crs-tick{width:18px;height:18px;margin:0 6px 0 0;vertical-align:middle;accent-color:var(--good);cursor:pointer}
+  .crs-sum{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .crs-mats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:6px}
+  .crs-mats button{padding:14px 6px;font-weight:600;color:#222;border:2px solid #0002}
+  .crs-mats button[data-m="Glass"]{grid-column:span 3}
+  .crs-mats button.sel{border-color:var(--accent);box-shadow:0 0 0 3px #f3b27f}
+  @media (max-width:700px){
+    .crs-toolbar{position:static} .crs-sheet{padding:10px}
+    table.crs-meta{width:100%} table.crs-meta td{min-width:0;white-space:normal}
+    table.crs-meta th{white-space:nowrap;font-size:13px}
+  }
+  .crs-fab{position:fixed;right:22px;bottom:22px;width:62px;height:62px;border-radius:50%;background:var(--accent);border-color:var(--accent);color:#fff;font-size:32px;line-height:1;box-shadow:0 6px 18px rgba(0,0,0,.3);z-index:6}
+  @media (min-width:900px){.crs-fab{display:none}}
+  body.crs-print .crs-sheet{border:0;padding:0;margin:0;box-shadow:none;max-width:none}
+  body.crs-print table.crs-grid{min-width:0}
+  body.crs-print table.crs-grid th,body.crs-print table.crs-grid td{height:25px;padding:2px 6px}
+  body.crs-print table.crs-grid td.pending .txt,body.crs-print table.crs-meta td.crs-ph{color:transparent}
+  body.crs-print .crs-tick{display:none}
+  body.crs-print table.crs-grid td.done,body.crs-print table.crs-grid td.hit{background:none !important;box-shadow:none}
+  @media print{
+    body.crs-print .crs-warn{display:none}
+    body.crs-print *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body.crs-print .tbl-wrap{overflow:visible}
+    @page{size:A4 portrait;margin:10mm}
+  }
   @media print{
     header,.actions,nav,.noprint,#toast{display:none !important}
     body{background:#fff} main{padding:0} .panel{box-shadow:none;padding:0}
@@ -238,6 +301,7 @@
       <button data-v="runsheet">Run Sheet</button>
       <button data-v="yard">Containers</button>
       <button data-v="lots">CRS Lots</button>
+      <button data-v="crs">CRS Various</button>
       <button data-v="history">Reports</button>
       <button data-v="setup">Setup</button>
     </nav>
@@ -273,6 +337,8 @@
 
 <!-- Firebase settings live in firebase-config.js. If it's missing or null the app runs on this device only. -->
 <script src="firebase-config.js"></script>
+<script src="xlsx.js"></script>
+<script src="crs.js"></script>
 
 <script>
 /* =========================================================
@@ -339,7 +405,7 @@ function migrate(st){
   });
   st.settings = Object.assign({}, BOOKING_DEFAULTS, st.settings || {});
   st.loads = st.loads || []; st.companies = st.companies || []; st.forms = st.forms || {};
-  st.lots = st.lots || []; st.reports = st.reports || [];
+  st.lots = st.lots || []; st.reports = st.reports || []; st.crsSheets = st.crsSheets || [];
   if (typeof st.runsheet !== 'string') st.runsheet = '';
   if (!st.priceSheets || !st.priceSheets.length) st.priceSheets = [DEFAULT_PRICES()];
   if (!st.deliveryLocations || !st.deliveryLocations.length){   // first run: take them from the materials
@@ -522,7 +588,7 @@ function render(){
   document.body.classList.toggle('rs-on', rs);
   rsPost(true);
   if (rs){ rsShow(); saveUI(); return; }
-  ({ yard:renderYard, daysheet:renderDaySheet, lots:renderLots, history:renderHistory, setup:renderSetup })[view]();
+  ({ yard:renderYard, daysheet:renderDaySheet, lots:renderLots, crs:renderCrs, history:renderHistory, setup:renderSetup })[view]();
   if (YARD) yardLock();
   if (PENDING_SCROLL != null){ const y = PENDING_SCROLL; PENDING_SCROLL = null; requestAnimationFrame(() => scrollTo(0, y)); }
   else saveUI();
@@ -2561,7 +2627,9 @@ function closeDlg(){ $('#dlg').close(); }
 /* =========================================================
    FIREBASE SYNC
    ========================================================= */
-const COLS = ['bays','containers','prefixes','materials','trucks','history','settings','loads'];
+const COLS = ['bays','containers','prefixes','materials','trucks','history','settings','loads','crsSheets'];
+/* crsSheets (CRS Various) is written field-by-field from crs.js, never by cloudPush */
+const SELF_WRITTEN = new Set(['crsSheets']);
 let CLOUD = null;          // set once firebase-config.js + SDK are loaded
 let pendingRender = false;
 
@@ -2606,6 +2674,7 @@ function fromRemote(){
   s.companies = sdoc('companies')?.names || [];
   const cfgs = sdoc('truckConfigs')?.list; if (cfgs && cfgs.length) s.truckConfigs = cfgs;
   s.loads = vals('loads');
+  s.crsSheets = vals('crsSheets');
   s.reports = sdoc('reports')?.list || [];
   const ps = sdoc('prices')?.sheets; if (ps && ps.length) s.priceSheets = ps;
   const locs = sdoc('locations')?.list; if (locs && locs.length) s.deliveryLocations = locs;
@@ -2623,6 +2692,7 @@ function cloudPush(){
   const L = toDocs(S), R = CLOUD.remote, F = CLOUD.F, ops = [];
   COLS.forEach(c => {
     if (CLOUD.blocked && CLOUD.blocked.has(c)) return;
+    if (SELF_WRITTEN.has(c)) return;
     if (YARD && c !== 'bays') return;      // the yard screen only ever saves bale counts
     L[c].forEach((obj, id) => { const j = stable(clean(obj)); if (R[c].get(id) !== j) ops.push(['set', c, id, j]); });
     if (!YARD) R[c].forEach((_, id) => { if (!L[c].has(id)) ops.push(['del', c, id]); });
@@ -2729,7 +2799,7 @@ function autoSnapshot(){
   const hasData = S.containers.length || S.history.length || S.bays.some(b => b.containerId);
   if (!hasData) return;                                   // never back up an empty yard over a full one
   try {
-    const snaps = getSnaps(), data = JSON.stringify(S), now = Date.now();
+    const snaps = getSnaps(), data = JSON.stringify(Object.assign({}, S, { crsSheets: CLOUD ? undefined : S.crsSheets })), now = Date.now();   // CRS loads live in Firebase, kept out of the small device backups
     const last = snaps[snaps.length - 1];
     if (last && last.data === data) return;
     if (last && now - last.t < SNAP_GAP) snaps[snaps.length - 1] = { t: now, data };
@@ -2744,7 +2814,9 @@ const summarise = d => {
 };
 function restoreData(d, label){
   if (!confirm(`Restore ${label}?\n\n${summarise(d)}\n\nThis replaces the current data${CLOUD ? ' for everyone' : ''}.`)) return;
+  const crsKeep = S.crsSheets;
   S = migrate(Object.assign(defaults(), d));
+  if (CLOUD) S.crsSheets = crsKeep;      // restoring never touches the CRS Various loads in Firebase
   for (let i = S.bays.length; i < BAY_COUNT; i++) S.bays.push(newBay(i+1));
   save(); render(); toast('Restored');
 }
