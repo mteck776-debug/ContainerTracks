@@ -211,6 +211,8 @@ function crsHomeHtml(){
         <div><label>Bin no <span class="muted">(optional)</span></label><input id="crs-bin" style="width:110px"></div>
         <div><label>Location <span class="muted">(optional)</span></label><input id="crs-loc" list="crs-locs" placeholder="Choose or type"></div>
         <div><label>&nbsp;</label><button class="primary" type="submit">Open sheet</button></div>
+        <div class="spacer"></div>
+        <div><label>&nbsp;</label><button type="button" onclick="crsCalc()">🧮 MAM's Calculator</button></div>
       </form>
       ${dl('crs-carriers', crsCarriers())}${dl('crs-locs', crsLocations())}
       <p class="muted" style="margin:8px 0 0">Same date, carrier, rego, bin and location opens the same sheet, so anyone can carry on where someone else left off.</p>
@@ -383,6 +385,7 @@ function crsSheetHtml(){
     <button onclick="crsDetails()">✎ Edit details</button>
     ${s ? `<button class="danger" onclick="crsDelLoad()">Delete load</button>` : `<span class="muted">New sheet — saves when the first entry is added</span>`}
     <div class="spacer"></div>
+    <button onclick="crsCalc()">🧮 MAM's Calculator</button>
     <button class="primary crs-addbtn" onclick="crsEntry()">+ Add entry</button>
   </div>
   <div class="panel crs-sheet">
@@ -442,6 +445,65 @@ function crsWeightsHtml(s){
       <button class="small" onclick="crsSaveDefaults()">Save these sliders as the default</button></div>` : ''}
   </div>`;
 }
+/* ---------- MAM's Calculator: bag counts only, nothing is saved ---------- */
+let CRS_CALC = null;
+function crsCalc(){
+  const prev = CRS_CALC || {};
+  CRS_CALC = { net: prev.net ?? '', glass: prev.glass ?? '', n: Object.assign({}, prev.n || {}), w: Object.assign({}, prev.w || {}) };
+  const bagMats = CRS_MATS.filter(m => m.group !== 'glass');
+  openDlg("MAM's Calculator", `
+    <p class="muted" style="margin-top:0">Work out the split without bag numbers. Nothing here is saved.</p>
+    <div class="row" style="margin-bottom:10px">
+      <div><label>Net weight (kg)</label><input id="cc-net" class="crs-netin" type="number" inputmode="decimal" min="0" value="${esc(CRS_CALC.net)}" oninput="crsCalcIn()"></div>
+      <div><label>Glass weighed (kg)</label><input id="cc-glass" class="crs-netin" type="number" inputmode="decimal" min="0" value="${esc(CRS_CALC.glass)}" oninput="crsCalcIn()"></div>
+      <div><label>= To divide between bags</label><b style="font-size:18px" id="cc-rem">—</b></div>
+    </div>
+    <div class="tbl-wrap crs-weights"><table>
+      <thead><tr><th>Material</th><th class="n">Bags</th><th>How heavy per bag</th><th class="n">Per bag</th><th class="n">Weight</th></tr></thead>
+      <tbody>${bagMats.map(m => { const f = CRS_CALC.w[m.id] ?? crsDefW(m.id); return `<tr>
+        <td><span class="crs-chip crs-${m.group}">${esc(m.id)}</span></td>
+        <td class="n"><input type="number" min="0" step="1" inputmode="numeric" data-cn="${esc(m.id)}" value="${esc(CRS_CALC.n[m.id] ?? '')}" placeholder="0" style="width:80px;text-align:right" oninput="crsCalcIn()"></td>
+        <td><div class="crs-sl"><small>Lighter</small><input type="range" min="0" max="${CRS_W_MAX}" step="${CRS_W_STEP}" value="${f}" data-cw="${esc(m.id)}" oninput="this.nextElementSibling.nextElementSibling.textContent=this.value;crsCalcIn()"><small>Heavier</small><span class="crs-f">${f}</span></div></td>
+        <td class="n" data-cpb="${esc(m.id)}">—</td><td class="n" data-ckg="${esc(m.id)}">—</td></tr>`; }).join('')}
+        <tr id="cc-glassrow"><td><span class="crs-chip crs-glass">Glass</span></td><td></td><td class="muted">Weighed</td><td></td><td class="n" id="cc-gkg">—</td></tr>
+        <tr id="cc-round" class="hidden"><td colspan="4" class="muted">Rounding (bags are rounded to the nearest ${CRS_ROUND} kg)</td><td class="n muted" id="cc-rkg"></td></tr>
+      </tbody>
+      <tfoot><tr class="tot"><td>Total</td><td class="n" id="cc-bags"></td><td></td><td></td><td class="n" id="cc-tot">—</td></tr></tfoot>
+    </table></div>
+    <div class="crs-msg" id="cc-msg"></div>`,
+    `<button onclick="crsCalcClear()" style="margin-right:auto">Clear</button><button class="primary" onclick="closeDlg()">Close</button>`);
+  crsCalcIn();
+  setTimeout(() => $('#cc-net').focus(), 30);
+}
+function crsCalcIn(){
+  const c = CRS_CALC, numv = v => String(v).trim() === '' ? null : Number(v);
+  c.net = $('#cc-net').value; c.glass = $('#cc-glass').value;
+  document.querySelectorAll('[data-cn]').forEach(i => c.n[i.dataset.cn] = i.value);
+  document.querySelectorAll('[data-cw]').forEach(i => c.w[i.dataset.cw] = Number(i.value));
+  /* build a throwaway load and run it through the same split as the real sheets */
+  const e = {}; let k = 0;
+  Object.entries(c.n).forEach(([m, v]) => { const n = Math.max(0, Math.floor(Number(v) || 0)); for (let i = 0; i < n; i++){ e['c' + k] = { id:'c' + k, material:m, bag:'', createdAt:String(k).padStart(6, '0') }; k++; } });
+  const gkg = numv(c.glass);
+  if (gkg) e.g = { id:'g', material:'Glass', ibc:'', weight:gkg, createdAt:'z' };
+  const sp = crsSplit({ e, net: numv(c.net), w: c.w });
+  const byId = Object.fromEntries(sp.rows.map(x => [x.id, x]));
+  CRS_MATS.filter(m => m.group !== 'glass').forEach(m => {
+    const x = byId[m.id], q = s => document.querySelector(`[data-${s}="${CSS.escape(m.id)}"]`);
+    q('ckg').innerHTML = x && x.kg != null ? `<b>${kgf(x.kg)}</b>` : '—';
+    q('cpb').textContent = x && x.kg != null ? (x.kg / x.n).toFixed(1) + ' kg' : '—';
+  });
+  $('#cc-glassrow').classList.toggle('hidden', !gkg); $('#cc-gkg').innerHTML = gkg ? `<b>${kgf(gkg)}</b>` : '—';
+  $('#cc-rem').textContent = sp.rem != null ? kgf(sp.rem) : '—';
+  $('#cc-round').classList.toggle('hidden', !(sp.ok && sp.rounding));
+  if (sp.ok && sp.rounding) $('#cc-rkg').textContent = `${sp.rounding > 0 ? '+' : '−'}${Math.abs(sp.rounding)} kg`;
+  const bags = sp.rows.reduce((t, x) => t + x.n, 0);
+  $('#cc-bags').textContent = bags ? `${bags} bag${bags === 1 ? '' : 's'}` : '';
+  $('#cc-tot').textContent = sp.ok ? kgf(sp.net) : '—';
+  const msg = !bags && sp.net != null ? 'Enter how many bags of each material.' : sp.ok ? '' : sp.reason.replace('Enter the net weight to divide it up', 'Enter the net weight to divide it up');
+  $('#cc-msg').textContent = msg; $('#cc-msg').classList.toggle('hidden', !msg);
+}
+function crsCalcClear(){ CRS_CALC = null; crsCalc(); }
+
 function crsSetNet(v){
   const s = crsOpenSheet(); if (!s) return;
   const n = String(v).trim() === '' ? null : Math.max(0, Number(v));
