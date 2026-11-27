@@ -158,8 +158,6 @@ function crsHomeHtml(){
   const dl = (id, arr) => `<datalist id="${id}">${arr.map(v => `<option value="${esc(v)}">`).join('')}</datalist>`;
   const bags = Object.entries(total.counts).filter(([m]) => crsGroupOf(m) !== 'glass').reduce((a, [, n]) => a + n, 0);
   const groupLabel = CRS_GROUPS.find(g => g[0] === CRS_UI.group)[1];
-  const numTd = (n, d = 0) => { const v = +(n || 0).toFixed(d); return `<td class="n ${v ? '' : 'zero'}">${v ? v.toLocaleString('en-AU') : '–'}</td>`; };
-  const tRow = r => `<td>${esc(r.name)}</td>${numTd(r.loads)}${CRS_MATS.map(m => numTd(r.counts[m.id])).join('')}${numTd(r.glassKg / 1000, 2)}`;
   const empty = !crsSheets().length;
   return `
   <div class="crs-home">
@@ -202,11 +200,7 @@ function crsHomeHtml(){
         <span class="noprint" style="display:flex;flex-wrap:wrap;gap:6px">${CRS_GROUPS.map(([v, l]) => `<button class="fchip ${CRS_UI.group === v ? 'on' : ''}" onclick="crsUI({group:'${v}'})">${l}</button>`).join('')}</span>
       </div>
       <p class="muted" style="margin:0 0 8px">Bags per material (glass counted in IBCs) · ${crsPeriodText()}</p>
-      <div class="tbl-wrap"><table class="crs-rpt">
-        <thead><tr><th>${groupLabel}</th><th class="n">Loads</th>${CRS_MATS.map(m => `<th class="n crs-${m.group}">${m.group === 'glass' ? 'Glass (IBC)' : esc(m.id)}</th>`).join('')}<th class="n crs-glass">Glass t</th></tr></thead>
-        <tbody>${rows.map(r => `<tr>${tRow(r)}</tr>`).join('') || `<tr><td colspan="${CRS_MATS.length + 3}" class="muted">No loads in this period.</td></tr>`}</tbody>
-        ${rows.length > 1 ? `<tfoot><tr class="tot">${tRow(total)}</tr></tfoot>` : ''}
-      </table></div>
+      ${crsTableHtml(rows, total, groupLabel)}
     </div>
 
     <div class="ch-grid2">
@@ -226,6 +220,46 @@ function crsHomeHtml(){
     </div>
   </div>`;
 }
+function crsTableHtml(rows, total, label){
+  const numTd = (n, d = 0) => { const v = +(n || 0).toFixed(d); return `<td class="n ${v ? '' : 'zero'}">${v ? v.toLocaleString('en-AU') : '–'}</td>`; };
+  const tRow = r => `<td>${esc(r.name)}</td>${numTd(r.loads)}${CRS_MATS.map(m => numTd(r.counts[m.id])).join('')}${numTd(r.glassKg / 1000, 2)}`;
+  return `<div class="tbl-wrap"><table class="crs-rpt">
+    <thead><tr><th>${label}</th><th class="n">Loads</th>${CRS_MATS.map(m => `<th class="n crs-${m.group}">${m.group === 'glass' ? 'Glass (IBC)' : esc(m.id)}</th>`).join('')}<th class="n crs-glass">Glass t</th></tr></thead>
+    <tbody>${rows.map(r => `<tr>${tRow(r)}</tr>`).join('') || `<tr><td colspan="${CRS_MATS.length + 3}" class="muted">No bulka bags in this period.</td></tr>`}</tbody>
+    ${rows.length > 1 ? `<tfoot><tr class="tot">${tRow(total)}</tr></tfoot>` : ''}
+  </table></div>`;
+}
+
+/* ---------- Reports tab: Bulka bags section (follows the Reports period) ---------- */
+function crsBetween(from, to){
+  return crsSheets().filter(s => (!from || s.date >= from) && (!to || s.date <= to) && Object.keys(s.e || {}).length)
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+function bulkaPanel(from, to){
+  const list = crsBetween(from, to), g = CRS_UI.rptGroup || 'location', { rows, total } = crsGroup(list, g);
+  const label = CRS_GROUPS.find(x => x[0] === g)[1];
+  const bags = Object.entries(total.counts).filter(([m]) => crsGroupOf(m) !== 'glass').reduce((a, [, n]) => a + n, 0);
+  const period = !from && !to ? 'all dates' : `${crsD(from) || 'start'} to ${crsD(to) || 'today'}`;
+  return `<div class="panel bulka">
+    <div class="row" style="align-items:center;margin-bottom:6px">
+      <h2 style="margin:0">Bulka bags <span class="muted" style="font-weight:400">CRS Various · ${period}</span></h2>
+      <div class="spacer"></div>
+      <span class="noprint" style="display:flex;flex-wrap:wrap;gap:6px">${CRS_GROUPS.map(([v, l]) => `<button class="fchip ${g === v ? 'on' : ''}" onclick="crsUI({rptGroup:'${v}'})">${l}</button>`).join('')}</span>
+    </div>
+    <div class="summary" style="margin-bottom:12px">
+      <div class="stat"><span>Truck loads</span><b>${total.loads}</b></div>
+      <div class="stat"><span>Bags</span><b>${bags.toLocaleString('en-AU')}</b></div>
+      <div class="stat"><span>Glass IBCs</span><b>${(total.counts.Glass || 0).toLocaleString('en-AU')}</b></div>
+      <div class="stat"><span>Glass weighed</span><b>${tn(total.glassKg)}</b></div>
+    </div>
+    ${crsTableHtml(rows, total, label)}
+    <div class="row noprint" style="margin-top:10px">
+      <button onclick="crsExportList(crsBetween('${from || ''}', '${to || ''}'), 'Bulka bags ${period.replace(/\//g, '-')}')">⬇ Bulka bags to Excel</button>
+      <button onclick="document.querySelector('#nav [data-v=crs]').click()">Go to CRS Various</button>
+    </div>
+  </div>`;
+}
+
 function crsRecentItem(s){
   const sm = crsSum(s), all = sm.done >= sm.total;
   const chips = CRS_MATS.filter(m => sm.counts[m.id]).map(m => `<span class="crs-chip crs-${m.group}">${m.group === 'glass'
@@ -464,11 +498,12 @@ function crsPrint(){
 /* ---------- Excel ---------- */
 const crsSafe = s => s.replace(/[\\/:*?"<>|]+/g, '-').trim();
 const crsKg = n => Math.round((n || 0) * 10) / 10;
-function crsExport(){
-  const list = crsInPeriod();
+function crsExport(){ crsExportList(crsInPeriod(), `CRS Various - ${CRS_PERIODS.find(p => p[0] === CRS_UI.period)[1]}`, `CRS Various – ${crsPeriodText()}`); }
+function crsExportList(list, fileLabel, title){
+  title = title || fileLabel;
   if (!list.length) return toast('No loads in this period to export');
   if (!window.downloadXlsx) return toast('Excel export didn’t load — reload the page');
-  const head = CRS_MATS.map(m => m.group === 'glass' ? 'Glass (IBC)' : m.id), title = `CRS Various – ${crsPeriodText()}`;
+  const head = CRS_MATS.map(m => m.group === 'glass' ? 'Glass (IBC)' : m.id);
   const tab = (g, label) => {
     const { rows, total } = crsGroup(list, g);
     const out = [[`${title} – by ${label.toLowerCase()}`], [], [label, 'Loads', ...head, 'Glass kg', 'Glass to weigh'],
@@ -483,7 +518,7 @@ function crsExport(){
     ...list.flatMap(s => crsEntries(s).map(e => [{ date: s.date }, s.carrier, s.rego, s.bin || '', s.location || '', s.manifest || '', e.material,
       { alu:'Aluminium', other:'Other', glass:'Glass' }[crsGroupOf(e.material)], e.bag || '', e.ibc || '',
       e.weight === '' || e.weight == null ? '' : Number(e.weight), e.done ? 'Yes' : '', e.createdAt ? fmtDate(e.createdAt) : '']))];
-  window.downloadXlsx(crsSafe(`CRS Various - ${CRS_PERIODS.find(p => p[0] === CRS_UI.period)[1]} - ${ymd()}.xlsx`), [
+  window.downloadXlsx(crsSafe(`${fileLabel} - ${ymd()}.xlsx`), [
     tab('location', 'Location'), tab('month', 'Month'), tab('carrier', 'Carrier'),
     { name: 'Loads', rows: loads, widths: [12, 18, 12, 10, 18, 14, ...CRS_MATS.map(() => 13), 10, 14, 11, 11], boldRows: [0] },
     { name: 'Every bag and IBC', rows: items, widths: [12, 18, 12, 10, 18, 14, 14, 11, 12, 10, 11, 10, 18], boldRows: [0] },
