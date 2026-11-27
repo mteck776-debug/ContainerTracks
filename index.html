@@ -2064,9 +2064,9 @@ const RPT_COLS = [
   ['bales',     'Bales',           true,  true,  true ],
   ['target',    'Target',          true,  false, false],
   ['est',       'Est. load',       true,  true,  false],
-  ['weighIn',   '1st weigh',       true,  false, false],
-  ['weighOut',  '2nd weigh',       true,  false, false],
-  ['net',       'Net (weighed)',   true,  true,  true ],
+  ['gross',     'Gross',           true,  true,  true ],
+  ['tare',      'Tare',            true,  true,  true ],
+  ['net',       'Net',             true,  true,  true ],
   ['perBale',   't / bale',        true,  false, true ],
   ['diff',      'vs bale est.',    true,  true,  false],
 ];
@@ -2074,6 +2074,14 @@ const RPT_DEFAULT = () => ({ preset: 'all', from: '', to: '', src: [], materials
   sort: { key: 'date', dir: -1 }, group: '', cols: RPT_COLS.filter(c => c[4]).map(c => c[0]), showCharts: true, chartMeasure: 'net' });
 const RPT_KEY = 'containertracks:report';
 let RPT = (() => { try { return Object.assign(RPT_DEFAULT(), JSON.parse(localStorage.getItem(RPT_KEY)) || {}); } catch(e){ return RPT_DEFAULT(); } })();
+/* the old 1st / 2nd weigh columns became Gross / Tare (final numbers) */
+function fixCols(cols){
+  let c = (cols || []).map(k => k === 'weighIn' ? 'tare' : k === 'weighOut' ? 'gross' : k);
+  if (!c.includes('gross')) c.push('gross');
+  if (!c.includes('tare')) c.push('tare');
+  return RPT_COLS.map(x => x[0]).filter(k => c.includes(k));
+}
+if (!RPT.grossTare){ RPT.cols = fixCols(RPT.cols); RPT.grossTare = 1; }
 let RPT_ACTIVE = null;
 let RPT_COLS_OPEN = false;                   // keep the Columns list open while ticking boxes
 function rptSet(patch){ Object.assign(RPT, patch); try { localStorage.setItem(RPT_KEY, JSON.stringify(RPT)); } catch(e) {} render(); }
@@ -2081,7 +2089,8 @@ function rptSet(patch){ Object.assign(RPT, patch); try { localStorage.setItem(RP
 function reportRows(){
   const rows = S.history.map(x => { const c = hCalc(x); return { id: x.id, kind: 'container', ts: x.date, day: ymd(x.date),
     src: 'Container', material: x.material, company: x.company || '', container: x.outId, bay: x.bay, order: x.orderNo || '', rego: x.rego || '',
-    inId: x.inId || '', bales: x.bales, target: x.target ?? null, est: x.estNet, weighIn: x.weighIn, weighOut: x.actualOut,
+    inId: x.inId || '', bales: x.bales, target: x.target ?? null, est: x.estNet,
+    gross: x.actualOut ?? null, tare: x.actualOut != null && c.actualNet != null ? x.actualOut - c.actualNet : null,
     net: c.actualNet, perBale: c.perBale, diff: c.actualNet != null ? c.actualNet - x.estNet : null }; });
   S.loads.filter(l => l.weighOut != null).forEach(l => {     // finished truck loads only
     const net = l.tare != null ? l.weighOut - l.tare : null, kgb = anyMat(l.material).baleKg || null;
@@ -2089,7 +2098,7 @@ function reportRows(){
     const lot = l.lotId ? S.lots.find(x => x.id === l.lotId) : null;
     rows.push({ id: l.id, kind: 'truck', ts: l.date + 'T12:00:00', day: l.date, src: lot ? 'CRS lot' : 'Truck', material: l.material, company: l.company || '',
       container: '', bay: '', order: lot ? lot.lotNo : '', rego: l.rego || '', inId: '', bales: l.bales ?? null, target: null, est,
-      weighIn: l.tare, weighOut: l.weighOut, net, perBale: net != null && l.bales ? net / l.bales : null, diff: net != null && est != null ? net - est : null });
+      gross: l.weighOut, tare: l.tare ?? null, net, perBale: net != null && l.bales ? net / l.bales : null, diff: net != null && est != null ? net - est : null });
   });
   return rows;
 }
@@ -2127,7 +2136,7 @@ function presetWeekStart(day){ const t = new Date(day + 'T12:00:00'); t.setDate(
 function cellText(r, k){
   const v = r[k];
   if (k === 'date') return fmtDate(r.ts).replace(/, 12:00 pm$/, '');
-  if (['est','weighIn','weighOut','net','diff'].includes(k)) return v == null ? '—' : k === 'diff' ? signed(v) : kg(v);
+  if (['est','gross','tare','net','diff'].includes(k)) return v == null ? '—' : k === 'diff' ? signed(v) : kg(v);
   if (k === 'perBale') return v == null ? '—' : bt(v);
   return v == null || v === '' ? '—' : String(v);
 }
@@ -2135,7 +2144,7 @@ function totals(rows){
   const sum = k => rows.reduce((s, r) => s + (r[k] || 0), 0);
   const weighed = rows.filter(r => r.net != null && r.bales);
   const wb = weighed.reduce((s, r) => s + r.bales, 0), wn = weighed.reduce((s, r) => s + r.net, 0);
-  return { n: rows.length, bales: sum('bales'), est: sum('est'), net: sum('net'), diff: sum('diff'), perBale: wb ? wn / wb : null };
+  return { n: rows.length, bales: sum('bales'), est: sum('est'), gross: sum('gross'), tare: sum('tare'), net: sum('net'), diff: sum('diff'), perBale: wb ? wn / wb : null };
 }
 
 /* ---------- report charts (follow the current filters) ----------
@@ -2330,7 +2339,10 @@ const rptCfg = () => JSON.parse(JSON.stringify(RPT));
 function rptLoad(id){
   RPT_ACTIVE = id;
   const x = id && S.reports.find(r => r.id === id);
-  rptSet(Object.assign(RPT_DEFAULT(), x ? x.cfg : {}));
+  const cfg = Object.assign(RPT_DEFAULT(), x ? x.cfg : {});
+  if (x && x.cfg && x.cfg.cols && !x.cfg.grossTare) cfg.cols = fixCols(x.cfg.cols);   // views saved before Gross / Tare
+  cfg.grossTare = 1;
+  rptSet(cfg);
 }
 function rptSaveAs(){
   openDlg('Save quick view', `<label>Name</label><input id="rp-name" style="width:100%" placeholder="e.g. Visy — this month">
@@ -2385,9 +2397,9 @@ function delHistRow(id){
 function delHist(id){ if (!confirm('Delete this load from history?')) return; S.history = S.history.filter(h => h.id!==id); save(); closeDlg(); render(); }
 function exportCSV(){
   const cols = RPT_COLS.filter(c => RPT.cols.includes(c[0])), rows = filteredRows();
-  const val = (r, k) => ['est','weighIn','weighOut','net','diff','perBale'].includes(k) ? (r[k] == null ? '' : (r[k] / 1000).toFixed(3))
+  const val = (r, k) => ['est','gross','tare','net','diff','perBale'].includes(k) ? (r[k] == null ? '' : (r[k] / 1000).toFixed(3))
     : k === 'date' ? r.day.split('-').reverse().join('/') : (r[k] ?? '');
-  const head = cols.map(([k, l]) => ['est','weighIn','weighOut','net','diff'].includes(k) ? l + ' (t)' : l);
+  const head = cols.map(([k, l]) => ['est','gross','tare','net','diff'].includes(k) ? l + ' (t)' : l);
   const csv = [head, ...rows.map(r => cols.map(([k]) => val(r, k)))].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const name = (S.reports.find(x => x.id === RPT_ACTIVE)?.name || 'loads').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase();
   download(`${name}-${ymd()}.csv`, csv, 'text/csv');
